@@ -83,29 +83,28 @@ func (s *State) UpdateStateFromBlock(block *core.Block) error {
 
 	// Process each transaction in the block
 	for _, tx := range block.Transactions {
-		txIDHex := hex.EncodeToString(tx.ID) // tx.ID comes from core.Transaction
+		txIDHex := hex.EncodeToString(tx.ID)
+		var spentUTXOAddressesForWealthTax [][]byte // Collect addresses for wealth tax processing
 
 		// 1. Process Inputs (Remove Spent UTXOs)
-		// For standard transactions, mark inputs as spent.
-		if tx.TxType == core.TxStandard || tx.TxType == core.TxContractCall || tx.TxType == core.TxContractDeploy {
-			// Process inputs for debiting conceptual account balances
-			for inputIdx, input := range tx.Inputs {
-				utxoKey := fmt.Sprintf("%s:%d", hex.EncodeToString(input.TxID), int(input.Vout))
-
-				// Find the UTXO being spent to get its value and address
+		if tx.TxType == core.TxStandard || tx.TxType == core.TxContractCall || tx.TxType == core.TxContractDeploy || tx.TxType == core.TxWealthTax {
+			for _, input := range tx.Inputs {
+				utxoKey := fmt.Sprintf("%s:%d", hex.EncodeToString(input.TxID), int(input.Vout)) // Cast Vout
 				spentUTXO, exists := s.utxoSet[utxoKey]
 				if !exists {
-					s.logger.Printf("STATE_ERROR: Block %d, Tx %s: Input %d (%s) UTXO not found in state. Possible double-spend or invalid block.",
-						block.Height, txIDHex, inputIdx, utxoKey)
-					return fmt.Errorf("%w: input UTXO %s not found for tx %s in block %d", ErrUTXONotFound, utxoKey, txIDHex, block.Height)
+					s.logger.Printf("STATE_ERROR: Block %d, Tx %s: Input UTXO %s not found.", block.Height, txIDHex, utxoKey)
+					return fmt.Errorf("%w: input UTXO %s not found for tx %s", ErrUTXONotFound, utxoKey, txIDHex)
 				}
-				// Conceptually update (debit) the balance of the input's address
-				// This assumes input.PubKey can be reliably converted to the address that controlled the UTXO
-				// In a real system, you'd get the address from the spentUTXO.Address
+
+				// Call conceptual account balance update for debit
 				s.updateAccountBalance(spentUTXO.Address, spentUTXO.Value, false) // false for debit
 
+                if tx.TxType == core.TxWealthTax {
+                    spentUTXOAddressesForWealthTax = append(spentUTXOAddressesForWealthTax, spentUTXO.Address)
+                }
+
 				delete(s.utxoSet, utxoKey)
-				s.logger.Printf("STATE: Removed spent UTXO %s for tx %s", utxoKey, txIDHex)
+				s.logger.Printf("STATE: Removed spent UTXO %s for tx %s (owner: %x, value: %d)", utxoKey, txIDHex, spentUTXO.Address, spentUTXO.Value)
 			}
 		}
 
@@ -133,26 +132,36 @@ func (s *State) UpdateStateFromBlock(block *core.Block) error {
 		// 3. EmPower1 Specific: AI/ML Driven State Updates (Wealth Gap Redistribution)
 		if tx.TxType == core.TxStimulusPayment || tx.TxType == core.TxWealthTax {
 			s.logger.Printf("STATE: Processing EmPower1 specific transaction Type: %s (ID: %s)", tx.TxType, txIDHex)
-            // Conceptual: AI/ML logic would have determined recipients (outputs of Stimulus)
-            // or payers (inputs of WealthTax). The actual balance changes are handled by
-            // UTXO processing above. This section is for updating Account.WealthLevel.
-            // Example for TxWealthTax inputs (payers):
-            if tx.TxType == core.TxWealthTax {
-                for _, input := range tx.Inputs {
-                    // Assuming input.PubKey can be resolved to an address whose wealth level is being affected.
-                    // This is a simplification; the AI decision would likely be linked via tx.AILogicID or similar.
-                    // For now, we'll just log. A real implementation would fetch the UTXO, get its address,
-                    // and then update the Account struct for that address.
-                     s.logger.Printf("STATE: Conceptual wealth tax processed for input related to Tx %s. Actual state update for wealth level would occur here.", txIDHex)
-                }
-            }
-            // Example for TxStimulusPayment outputs (recipients):
-             if tx.TxType == core.TxStimulusPayment {
-                for _, output := range tx.Outputs {
-                    // This output is a stimulus payment. The recipient's Account.WealthLevel might be updated
-                    // based on this new state, or this payment is a result of a prior WealthLevel assessment.
-                    // The AI AuditLog for this transaction (tx.AILogicID, tx.AIRuleTrigger) provides context.
-                    s.logger.Printf("STATE: Conceptual stimulus payment processed for output to %x in Tx %s. Actual state update for wealth level would occur here.", output.PubKeyHash, txIDHex)
+			s.logger.Printf("STATE: AI Metadata - AILogicID: %s, AIRuleTrigger: %s, AIProof: %x", tx.AILogicID, tx.AIRuleTrigger, tx.AIProof)
+
+			// Conceptual AI Verification step (mocked for now)
+			s.logger.Printf("STATE: Conceptual AI Verification for tx %s based on AI metadata - PASSED (mocked)", txIDHex)
+            // In a real system, this might involve calling an AI module/oracle and could return an error.
+
+			if tx.TxType == core.TxStimulusPayment {
+				for _, output := range tx.Outputs {
+					affectedAddress := output.PubKeyHash
+					newWealthLevel := map[string]string{
+						"status":        "stimulus_received", "ai_logic_id":   tx.AILogicID, "rule_trigger":  tx.AIRuleTrigger,
+						"tx_id":         txIDHex, "block_height":  fmt.Sprintf("%d", block.Height), "last_updated":  fmt.Sprintf("%d", block.Timestamp),
+					}
+					if err := s.UpdateWealthLevel(affectedAddress, newWealthLevel); err != nil {
+						s.logger.Printf("STATE_ERROR: Failed to update wealth level for stimulus recipient %x: %v", affectedAddress, err)
+					} else {
+						s.logger.Printf("STATE: Wealth level updated for stimulus recipient %x due to tx %s.", affectedAddress, txIDHex)
+					}
+				}
+			} else if tx.TxType == core.TxWealthTax {
+                for _, affectedAddress := range spentUTXOAddressesForWealthTax {
+                    newWealthLevel := map[string]string{
+                        "status":        "wealth_tax_applied", "ai_logic_id":   tx.AILogicID, "rule_trigger":  tx.AIRuleTrigger,
+                        "tx_id":         txIDHex, "block_height":  fmt.Sprintf("%d", block.Height), "last_updated":  fmt.Sprintf("%d", block.Timestamp),
+                    }
+                    if err := s.UpdateWealthLevel(affectedAddress, newWealthLevel); err != nil {
+                        s.logger.Printf("STATE_ERROR: Failed to update wealth level for taxed address %x: %v", affectedAddress, err)
+                    } else {
+                       s.logger.Printf("STATE: Wealth level updated for taxed address %x due to tx %s.", affectedAddress, txIDHex)
+                    }
                 }
             }
 		}
