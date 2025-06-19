@@ -1,0 +1,163 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EmPower1 Canonical Transaction Payload",
+  "description": "Defines the structure of the transaction payload that is deterministically serialized to JSON (with keys sorted alphabetically as per Go struct field order for simple JSON tags) and then hashed to produce the transaction ID. This schema is crucial for cross-language compatibility and ensuring consistent transaction hashing.",
+  "type": "object",
+  "properties": {
+    "aiLogicId": {
+      "description": "ID of the AI/ML model version used. Omitted if empty.",
+      "type": "string"
+    },
+    "aiProof": {
+      "description": "Cryptographic proof/attestation from an AI oracle or system (base64 encoded string from []byte). Omitted if empty.",
+      "type": "string"
+    },
+    "aiRuleTrigger": {
+      "description": "Specific rule or condition in the AI logic that was met. Omitted if empty.",
+      "type": "string"
+    },
+    "arguments": {
+      "description": "Encoded arguments for a smart contract call (base64 encoded string from []byte). Omitted if empty.",
+      "type": "string"
+    },
+    "authorizedPublicKeys": {
+      "description": "List of all authorized public keys for multi-signature (hex encoded strings, sorted alphabetically by the serialization logic). Omitted if empty.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]*$"
+      }
+    },
+    "contractCode": {
+      "description": "Compiled smart contract bytecode for contract deployment (base64 encoded string from []byte). Omitted if empty.",
+      "type": "string"
+    },
+    "fee": {
+      "description": "Transaction fee in the smallest unit of PTCN.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "functionName": {
+      "description": "Name of the function to call in a smart contract. Omitted if empty.",
+      "type": "string"
+    },
+    "from": {
+      "description": "Sender's public key (hex encoded string from tx.PublicKey). This is the primary public key associated with the transaction if it's single-signer. Omitted if tx.PublicKey is nil/empty.",
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]*$"
+    },
+    "inputs": {
+      "description": "List of transaction inputs. The array itself is sorted by the serialization logic (e.g., by PrevTxID then Vout).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "txId": {
+            "description": "Reference to the ID of the transaction that created the output being spent (hex encoded string).",
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]+$"
+          },
+          "vout": {
+            "description": "The index of the output in the referenced transaction's outputs array.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "pubKey": {
+            "description": "Public key (hex encoded string) of the UTXO owner, used for signature verification. Omitted if not applicable for this input type in the canonical form.",
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]*$"
+          },
+          "signature": {
+            "description": "Cryptographic signature for this input (base64 encoded string). This field is typically NOT part of the data hashed for tx ID to prevent malleability; its presence here is for completeness if a specific canonical form requires it, but usually it's excluded. Omitted if empty or not applicable.",
+            "type": "string"
+          },
+          "sequence": {
+            "description": "Input sequence number (optional, for RBF or timelocks).",
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "txId",
+          "vout",
+          "pubKey",
+          "sequence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "outputs": {
+      "description": "List of transaction outputs. The array itself is sorted by the serialization logic (e.g., by value then PubKeyHash).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "description": "Amount of cryptocurrency in this output, in smallest units.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "pubKeyHash": {
+            "description": "Hash of the recipient's public key (hex encoded string).",
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]+$"
+          }
+          // "metadata" field was in user's original thought process but not in CanonicalTxPayload struct.
+          // If needed, it would be defined here. For now, omitting based on struct.
+        },
+        "required": [
+          "value",
+          "pubKeyHash"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "publicKey": {
+      "description": "Primary public key associated with the transaction (hex encoded string from tx.PublicKey, typically same as 'from' for single-signer). Omitted if tx.PublicKey is nil/empty.",
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]*$"
+    },
+    "requiredSignatures": {
+      "description": "M: Minimum number of signatures required for a transaction-level multi-signature scheme. Omitted if not a multi-sig transaction or if value is zero.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "targetContractAddress": {
+      "description": "Address of the smart contract to call (hex encoded string). Omitted if empty.",
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]*$"
+    },
+    "timestamp": {
+      "description": "Unix nanoseconds, representing the transaction creation time (potentially adjusted by proposer for consensus).",
+      "type": "integer"
+    },
+    "to": {
+      "description": "Recipient address (hex encoded string). This field is set to an empty string in the canonical form as 'To' is not a direct field in the EmPower1 Transaction struct (destination is specified in outputs). Omitted if empty.",
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]*$"
+    },
+    "txType": {
+      "description": "Type of the transaction.",
+      "type": "string",
+      "enum": [ // These should match the TxType consts in Go code
+        "STANDARD",
+        "CONTRACT_DEPLOY",
+        "CONTRACT_CALL",
+        "DID_CREATE",
+        "DID_UPDATE",
+        "STIMULUS_PAYMENT",
+        "WEALTH_TAX",
+        "VALIDATOR_STAKE",
+        "GOVERNANCE_VOTE"
+      ]
+    }
+  },
+  "required": [
+    "fee",
+    "inputs",
+    "outputs",
+    "timestamp",
+    "txType"
+  ],
+  "additionalProperties": false
+}
