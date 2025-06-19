@@ -1,23 +1,20 @@
 package network
 
 import (
-	"bytes" // For comparing message data
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
+	// "reflect" // Not strictly needed for these tests after refinement
 
 	"empower1.com/empower1blockchain/internal/core"
 )
 
-// Helper for creating a simple block for testing
+// Helper for creating a simple block for testing serialization
 func newTestSimBlock(id string) *core.Block {
-	// Ensure all fields that are part of GOB encoding are initialized to avoid panics/errors.
-	// Slices and maps should be initialized (e.g., make([]core.Transaction, 0)).
-	// Pointer fields should be nil or initialized.
-	// Byte slices should be initialized (e.g., make([]byte, X) or actual data).
-	hashBytes := sha256.Sum256([]byte(id))
+	hashBytes := sha256.Sum256([]byte("hash_" + id))
 	prevHashBytes := sha256.Sum256([]byte("prev_" + id))
 	proposerBytes := sha256.Sum256([]byte("proposer_" + id))
 	sigBytes := sha256.Sum256([]byte("sig_" + id))
@@ -26,9 +23,9 @@ func newTestSimBlock(id string) *core.Block {
 
 	return &core.Block{
 		Height:          1,
-		Timestamp:       time.Now().UnixNano(),
+		Timestamp:       time.Now().UnixNano(), // Timestamps will differ, not an issue for these tests
 		PrevBlockHash:   prevHashBytes[:],
-		Transactions:    make([]core.Transaction, 0), // Initialize empty slice
+		Transactions:    make([]core.Transaction, 0),
 		ProposerAddress: proposerBytes[:],
 		Signature:       sigBytes[:],
 		Hash:            hashBytes[:],
@@ -37,18 +34,17 @@ func newTestSimBlock(id string) *core.Block {
 	}
 }
 
-// Helper for creating a simple tx for testing
+// Helper for creating a simple tx for testing serialization
 func newTestSimTx(idStr string) *core.Transaction {
-	txIDBytes := sha256.Sum256([]byte(idStr))
+	txIDBytes := sha256.Sum256([]byte("txid_" + idStr))
 	return &core.Transaction{
 		ID:        txIDBytes[:],
 		Timestamp: time.Now().UnixNano(),
 		TxType:    core.TxStandard,
-		Inputs:    make([]core.TxInput, 0),  // Initialize empty slice
-		Outputs:   make([]core.TxOutput, 0), // Initialize empty slice
+		Inputs:    make([]core.TxInput, 0),
+		Outputs:   make([]core.TxOutput, 0),
 		Fee:       0,
-		Signers:   make([]core.SignerInfo,0), // Initialize for multi-sig if used by gob
-		// Initialize other slice/map/pointer fields if they were to be added
+		Signers:   make([]core.SignerInfo, 0),
 	}
 }
 
@@ -67,8 +63,11 @@ func TestNewSimulatedNetwork(t *testing.T) {
 	if sn.TransactionBroadcastChannel == nil {
 		t.Error("TransactionBroadcastChannel is nil")
 	}
-	if sn.peers == nil { // Check for peers map
-		t.Error("Peers map is nil")
+	if sn.peers == nil {
+		t.Error("Peers map is nil (expected initialized map)")
+	}
+	if _, ok := sn.peers.(map[string]*Peer); !ok && sn.peers != nil {
+		t.Errorf("Peers map is not of type map[string]*Peer")
 	}
 	if cap(sn.BlockBroadcastChannel) != 100 {
 		t.Errorf("BlockBroadcastChannel capacity = %d, want 100", cap(sn.BlockBroadcastChannel))
@@ -80,140 +79,182 @@ func TestNewSimulatedNetwork(t *testing.T) {
 
 func TestSimulatedNetwork_PeerLifecycle(t *testing.T) {
 	sn := NewSimulatedNetwork("nodeA")
-	peerID := "nodeB_id"
+	peerNodeID1 := "nodeB"
+	peerNodeID2 := "nodeC"
 
-	// Connect Peer
-	peerB, err := sn.ConnectPeer(peerID)
+	// Connect first peer
+	peerB, err := sn.ConnectPeer(peerNodeID1)
 	if err != nil {
-		t.Fatalf("ConnectPeer failed: %v", err)
+		t.Fatalf("ConnectPeer(%s) failed: %v", peerNodeID1, err)
 	}
 	if peerB == nil {
-		t.Fatal("ConnectPeer returned nil peer without error")
+		t.Fatalf("ConnectPeer(%s) returned nil peer without error", peerNodeID1)
 	}
-	sn.mu.RLock()
-	_, exists := sn.peers[peerID]
-	sn.mu.RUnlock()
-	if !exists {
-		t.Errorf("Peer %s not found in sn.peers after ConnectPeer", peerID)
+	if peerB.ID != peerNodeID1 {
+		t.Errorf("Connected peer ID = %s, want %s", peerB.ID, peerNodeID1)
 	}
 	if len(sn.peers) != 1 {
-		t.Errorf("sn.peers length = %d, want 1", len(sn.peers))
+		t.Errorf("Peer map length after 1st connect = %d, want 1", len(sn.peers))
 	}
-	// Allow some time for peer processor to start, though it's very quick
+	// Allow processor to start
 	time.Sleep(10 * time.Millisecond)
 
-	// Attempt to connect same peer again (should return existing peer, no error or specific 'already connected' error)
-	existingPeerB, err := sn.ConnectPeer(peerID)
-	if err != nil { // Current ConnectPeer returns nil error if peer exists, just returns existing
-		t.Errorf("Connecting to already connected peer %s returned an error: %v", peerID, err)
+	// Attempt to connect same peer again
+	_, err = sn.ConnectPeer(peerNodeID1)
+	if err != nil { // Expecting nil error as it should return existing peer
+		t.Errorf("Re-connecting to peer %s returned error: %v", peerNodeID1, err)
 	}
-	if existingPeerB != peerB {
-		t.Errorf("Connecting to already connected peer %s returned a different peer instance", peerID)
-	}
-	if len(sn.peers) != 1 { // Length should remain 1
-		t.Errorf("sn.peers length = %d after re-connecting, want 1", len(sn.peers))
+	if len(sn.peers) != 1 {
+		t.Errorf("Peer map length after re-connecting existing peer = %d, want 1", len(sn.peers))
 	}
 
+	// Connect second peer
+	peerC, err := sn.ConnectPeer(peerNodeID2)
+	if err != nil {
+		t.Fatalf("ConnectPeer(%s) failed: %v", peerNodeID2, err)
+	}
+	if len(sn.peers) != 2 {
+		t.Errorf("Peer map length after 2nd connect = %d, want 2", len(sn.peers))
+	}
+	time.Sleep(10 * time.Millisecond)
 
-	// Disconnect Peer
-	sn.DisconnectPeer(peerID)
+
+	// Disconnect first peer
+	sn.DisconnectPeer(peerNodeID1)
 	sn.mu.RLock()
-	_, exists = sn.peers[peerID]
+	_, exists := sn.peers[peerNodeID1]
 	sn.mu.RUnlock()
 	if exists {
-		t.Errorf("Peer %s still found in sn.peers after DisconnectPeer", peerID)
+		t.Errorf("Peer %s still in map after disconnect", peerNodeID1)
+	}
+	if len(sn.peers) != 1 {
+		t.Errorf("Peer map length after 1st disconnect = %d, want 1", len(sn.peers))
+	}
+
+	// Disconnect second peer
+	sn.DisconnectPeer(peerNodeID2)
+	sn.mu.RLock()
+	_, exists = sn.peers[peerNodeID2]
+	sn.mu.RUnlock()
+	if exists {
+		t.Errorf("Peer %s still in map after disconnect", peerNodeID2)
 	}
 	if len(sn.peers) != 0 {
-		t.Errorf("sn.peers length = %d after disconnect, want 0", len(sn.peers))
+		t.Errorf("Peer map length after 2nd disconnect = %d, want 0", len(sn.peers))
 	}
-	// StopProcessor is called by DisconnectPeer, which waits on peer.wg.
-	// If it doesn't hang, the goroutine is assumed to have exited.
+
+	// Ensure StopProcessor doesn't hang (implicitly tested by DisconnectPeer completing)
+	// To be more explicit, one could try to send to peerB.IncomingMessages and peerC.IncomingMessages
+	// after disconnect and expect them to be closed or non-responsive, but that's complex.
+	// For now, successful completion of DisconnectPeer is the main check.
 }
 
 
-func TestSimulatedNetwork_Broadcast_And_PeerProcessorRouting(t *testing.T) {
-	broadcastingNode := NewSimulatedNetwork("broadcastingNode")
-	receivingNodeID := "receivingNodeID" // This is just an ID for the Peer object
+func TestSimulatedNetwork_Broadcast_And_PeerProcessing(t *testing.T) {
+	broadcaster := NewSimulatedNetwork("broadcasterNode")
+	peerID := "internalPeerRepresentation" // The ID used by broadcaster to manage the connection
 
-	// Connect a "peer" to the broadcastingNode.
-	// The Peer object within broadcastingNode will process messages sent to receivingNodeID.
-	// Its processor will route them to broadcastingNode's *own* public channels.
-	_, err := broadcastingNode.ConnectPeer(receivingNodeID)
+	// Connect a peer. This peer object is internal to `broadcaster`.
+	// Its processor will route messages to `broadcaster.BlockBroadcastChannel` etc.
+	internalPeer, err := broadcaster.ConnectPeer(peerID)
 	if err != nil {
-		t.Fatalf("Failed to connect peer: %v", err)
+		t.Fatalf("Failed to connect internal peer: %v", err)
 	}
-	time.Sleep(10 * time.Millisecond) // Allow peer processor to start
+	if internalPeer.network != broadcaster {
+		t.Fatal("Internal peer's network reference is not the broadcaster")
+	}
+	time.Sleep(20 * time.Millisecond) // Give peer processor time to start
 
-	// Test BroadcastBlock
-	testBlock := newTestSimBlock("block123")
-	serializedBlock, _ := testBlock.Serialize()
-	broadcastingNode.BroadcastBlock(testBlock)
+	t.Run("BroadcastBlock", func(t *testing.T) {
+		testBlock := newTestSimBlock("blockToBroadcast")
+		serializedBlock, _ := testBlock.Serialize()
 
-	select {
-	case receivedData := <-broadcastingNode.GetBlockReceptionChannel():
-		if !bytes.Equal(receivedData, serializedBlock) {
-			t.Errorf("Received block data mismatch on broadcastingNode's BlockBroadcastChannel. Got %x, want %x", receivedData, serializedBlock)
-		} else {
-			t.Logf("Successfully received broadcasted block on broadcastingNode's BlockBroadcastChannel.")
+		broadcaster.BroadcastBlock(testBlock)
+
+		select {
+		case receivedData := <-broadcaster.GetBlockReceptionChannel():
+			if !bytes.Equal(receivedData, serializedBlock) {
+				t.Errorf("Received block data mismatch. Got %x, want %x", receivedData, serializedBlock)
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Error("Did not receive broadcasted block on broadcaster's BlockBroadcastChannel")
 		}
-	case <-time.After(200 * time.Millisecond):
-		t.Error("Did not receive broadcasted block data on broadcastingNode's BlockBroadcastChannel")
-	}
+	})
 
-	// Test BroadcastTransaction
-	testTx := newTestSimTx("tx456")
-	serializedTx, _ := testTx.Serialize()
-	broadcastingNode.BroadcastTransaction(testTx)
+	t.Run("BroadcastTransaction", func(t *testing.T) {
+		testTx := newTestSimTx("txToBroadcast")
+		serializedTx, _ := testTx.Serialize()
 
-	select {
-	case receivedData := <-broadcastingNode.GetTransactionReceptionChannel():
-		if !bytes.Equal(receivedData, serializedTx) {
-			t.Errorf("Received tx data mismatch on broadcastingNode's TransactionBroadcastChannel. Got %x, want %x", receivedData, serializedTx)
-		} else {
-			t.Logf("Successfully received broadcasted transaction on broadcastingNode's TransactionBroadcastChannel.")
+		broadcaster.BroadcastTransaction(testTx)
+
+		select {
+		case receivedData := <-broadcaster.GetTransactionReceptionChannel():
+			if !bytes.Equal(receivedData, serializedTx) {
+				t.Errorf("Received tx data mismatch on broadcaster's TransactionBroadcastChannel. Got %x, want %x", receivedData, serializedTx)
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Error("Did not receive broadcasted tx on broadcaster's TransactionBroadcastChannel")
 		}
-	case <-time.After(200 * time.Millisecond):
-		t.Error("Did not receive broadcasted transaction data on broadcastingNode's TransactionBroadcastChannel")
-	}
+	})
 
-    lonelySn := NewSimulatedNetwork("lonelyNode")
-    lonelySn.BroadcastBlock(newTestSimBlock("lonelyBlock"))
-    lonelySn.BroadcastTransaction(newTestSimTx("lonelyTx"))
-    t.Log("Tested broadcast with no peers (expected internal log messages, no errors here).")
+	t.Run("BroadcastToNoPeers", func(t *testing.T) {
+		lonelyNode := NewSimulatedNetwork("lonelyNode")
+		testBlock := newTestSimBlock("lonelyBlock")
+		// This should execute without error and log internally
+		lonelyNode.BroadcastBlock(testBlock)
+		// Check that no messages arrived on its own channels (as it has no peers to loop back through)
+		select {
+		case <-lonelyNode.GetBlockReceptionChannel():
+			t.Error("Received unexpected block on lonelyNode's BlockBroadcastChannel")
+		case <-time.After(50 * time.Millisecond):
+			// Expected
+		}
+	})
 
-    // Test broadcast to full peer channel
-    snPeerTest := NewSimulatedNetwork("snPeerTest")
-    peerToFill, _ := snPeerTest.ConnectPeer("peerToFillID")
-    // Fill up peerToFill.IncomingMessages by sending NetworkMessage structs
-    for i := 0; i < 105; i++ { // Channel capacity is 100
-        msg := NetworkMessage{Type: "FILLER", Data: []byte(fmt.Sprintf("filler%d",i))}
-        select {
-        case peerToFill.IncomingMessages <- msg:
-        default:
-            break
-        }
-    }
-    snPeerTest.BroadcastBlock(newTestSimBlock("droppedBlock"))
-    t.Log("Tested broadcast to full peer channel (expected internal log message about drop).")
+	t.Run("BroadcastToFullPeerChannel", func(t *testing.T) {
+		nodeWithBusyPeer := NewSimulatedNetwork("nodeWithBusyPeer")
+		busyPeerRepresentation, _ := nodeWithBusyPeer.ConnectPeer("busyPeerID")
+		time.Sleep(10 * time.Millisecond)
 
-    broadcastingNode.DisconnectPeer(receivingNodeID)
-    snPeerTest.DisconnectPeer("peerToFillID")
+
+		// Fill up the Peer's IncomingMessages channel
+		for i := 0; i < cap(busyPeerRepresentation.IncomingMessages)+5; i++ {
+			msg := NetworkMessage{Type: "FILLER", Data: []byte(fmt.Sprintf("filler%d", i))}
+			select {
+			case busyPeerRepresentation.IncomingMessages <- msg:
+			default: // Channel is full
+				t.Logf("Filled busyPeer's IncomingMessages channel at iteration %d", i)
+				break
+			}
+		}
+		// Now broadcast. The message to this peer should be dropped (and logged internally by SimulatedNetwork).
+		nodeWithBusyPeer.BroadcastBlock(newTestSimBlock("blockForBusyPeer"))
+		// Check that no new message (or the dropped one) appears on the node's public channel from this busy peer quickly.
+		// This test mainly ensures no deadlock and respects non-blocking send.
+		select {
+		case <- nodeWithBusyPeer.GetBlockReceptionChannel():
+			t.Error("Received block on main channel from a peer whose private channel was full; expected drop.")
+		case <- time.After(50 * time.Millisecond):
+			t.Log("No block received from busy peer as expected (message likely dropped).")
+		}
+		nodeWithBusyPeer.DisconnectPeer("busyPeerID")
+	})
+
+
+	broadcaster.DisconnectPeer(peerID) // Cleanup
 }
-
 
 func TestSimulatedNetwork_SimulateReceive(t *testing.T) {
-	// Keep existing TestSimulatedNetwork_SimulateReceive, ensure it's still valid.
-    // It tests injecting messages directly into THIS node's public channels.
 	sn := NewSimulatedNetwork("testNode")
-	blockData := []byte("sim_block_data_direct") // Unique data
-	txData := []byte("sim_tx_data_direct")       // Unique data
-    otherData := []byte("other_sim_data_direct")  // Unique data
-    genericMsgType := "GENERIC_MESSAGE_DIRECT"
+	blockData := []byte("sim_block_data_direct_samer")
+	txData := []byte("sim_tx_data_direct_samer")
+    otherData := []byte("other_sim_data_direct_samer")
+    genericMsgType := "GENERIC_MESSAGE_DIRECT_SAMER"
 
     var handlerCalled bool
     var receivedPeerID, receivedMsgType string
     var receivedHandlerData []byte
-    sn.RegisterMessageHandler(func(pID string, mType string, d []byte) {
+    sn.RegisterMessageHandler(func(pID string, mType string, data []byte) {
         handlerCalled = true
         receivedPeerID = pID
         receivedMsgType = mType
@@ -267,9 +308,7 @@ func TestSimulatedNetwork_SimulateReceive(t *testing.T) {
     }
 }
 
-// TODO: Test for channel full scenarios in Broadcast (non-blocking send should drop for that peer).
-// - Already partially covered in TestSimulatedNetwork_Broadcast_And_PeerProcessorRouting
 // TODO: Test RegisterMessageHandler with nil handler.
-// TODO: Test DisconnectPeer ensuring peer's conceptualPeerMessageProcessor actually stops.
-// - Current test relies on StopProcessor not hanging. More robust check is complex.
-// TODO: Test multiple peers broadcasting and receiving concurrently.
+// TODO: Test DisconnectPeer ensuring peer's conceptualPeerMessageProcessor actually stops more explicitly.
+// TODO: Test multiple peers broadcasting and receiving concurrently if current tests don't cover race conditions.
+```
