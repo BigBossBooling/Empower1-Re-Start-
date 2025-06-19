@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
-	"time" // Required for NewBlock
-	// "fmt" // Not used in the provided Block methods
-	// "log" // Not used
-	// "os"  // Not used
+	"encoding/gob" // Added for GOB serialization
+	"errors"       // Added for new error variables
+	"fmt"          // Added for error wrapping
+	"time"         // Required for NewBlock
+)
+
+var (
+	ErrBlockSerialization   = errors.New("failed to gob encode block")
+	ErrBlockDeserialization = errors.New("failed to gob decode block")
 )
 
 // Block represents a block in the EmPower1 Blockchain.
@@ -106,6 +111,31 @@ func (b *Block) HashTransactions() []byte {
     finalHash := sha256.Sum256(combinedTxHashes)
     return finalHash[:]
 }
+
+// Serialize uses gob encoding to convert the Block struct into a byte slice.
+func (b *Block) Serialize() ([]byte, error) {
+    var result bytes.Buffer
+    encoder := gob.NewEncoder(&result)
+    // Ensure all fields of Block, including []Transaction, are gob-encodable.
+    // Transaction already has Serialize/Deserialize, but gob directly encodes structs.
+    err := encoder.Encode(b)
+    if err != nil {
+        return nil, fmt.Errorf("%w: %v", ErrBlockSerialization, err)
+    }
+    return result.Bytes(), nil
+}
+
+// DeserializeBlock converts a byte slice (previously gob encoded) back into a Block struct.
+func DeserializeBlock(data []byte) (*Block, error) {
+    var b Block
+    decoder := gob.NewDecoder(bytes.NewBuffer(data))
+    err := decoder.Decode(&b)
+    if err != nil {
+        return nil, fmt.Errorf("%w: %v", ErrBlockDeserialization, err)
+    }
+    return &b, nil
+}
+
 
 // TODO: Implement SetHash(hash []byte) method
 // TODO: Implement Sign(privateKey []byte) error method (requires crypto library for signing)

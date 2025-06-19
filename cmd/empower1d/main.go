@@ -106,7 +106,16 @@ func runNode() (*consensus.ConsensusEngine, error) {
 
 	// Initialize ConsensusEngine
 	log.Println("Initializing Consensus Engine...")
-	consensusEngine := consensus.NewConsensusEngine(proposerService, validationService, consensusState, chain, simNet)
+	// Use one of the dummy validator addresses for this node's identity for proposing
+	thisNodeValidatorAddress := dummyValidators[0].Address
+	consensusEngine := consensus.NewConsensusEngine(
+		proposerService,
+		validationService,
+		consensusState,
+		chain,
+		simNet,
+		thisNodeValidatorAddress, // Add this new parameter
+	)
 	if consensusEngine == nil {
 		return nil, fmt.Errorf("failed to initialize consensus engine (NewConsensusEngine returned nil)")
 	}
