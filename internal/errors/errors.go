@@ -53,6 +53,15 @@ var (
 	ErrInvalidReputationScore       = errors.New("reputation score is outside the valid range")
 )
 
+// General Errors
+var (
+	ErrNotImplemented         = errors.New("feature or method not implemented yet")
+	ErrInvalidOperation       = errors.New("operation is invalid in the current context")
+	ErrSignatureFailed        = errors.New("cryptographic signature operation failed")
+	ErrTxIDAlreadySet         = errors.New("transaction ID is already set")
+
+)
+
 // TODO: Consider creating a custom error type that can include more context,
 // e.g.,  type ValidationError struct { Code ErrorCode; Message string; Field string; Cause error }
 // For now, standard error variables are used for simplicity and direct use with errors.Is().

@@ -328,6 +328,100 @@ func TestBlock_SerializationJSON(t *testing.T) {
 // TODO: These tests will need actual ToJSON/FromJSON (or Marshal/Unmarshal) methods on the types
 //       or a separate serialization package. For now, they serve as placeholders for the intent.
 
+func TestUTXO_Validate(t *testing.T) {
+	validTxID := sampleHash(100)
+	validAddress := types.Address("validUTXOAddress")
+	// Assuming expected address length for UTXO recipient is 20, similar to TransactionOutput
+	validAddressFixedLength := make(types.Address, 20)
+	copy(validAddressFixedLength, []byte("fixedLengthRecipient"))
+
+
+	tests := []struct {
+		name            string
+		utxo            types.UTXO
+		wantErr         bool
+		expectedErrType error
+	}{
+		{
+			name: "valid UTXO",
+			utxo: types.UTXO{
+				TxID:             validTxID,
+				OutputIndex:      0,
+				Amount:           100,
+				RecipientAddress: validAddressFixedLength, // Use address with expected length
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid UTXO - zero TxID",
+			utxo: types.UTXO{
+				TxID:             zeroHash(),
+				OutputIndex:      0,
+				Amount:           100,
+				RecipientAddress: validAddressFixedLength,
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidTransactionID,
+		},
+		{
+			name: "invalid UTXO - zero Amount",
+			utxo: types.UTXO{
+				TxID:             validTxID,
+				OutputIndex:      1,
+				Amount:           0,
+				RecipientAddress: validAddressFixedLength,
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidOutputAmount,
+		},
+		{
+			name: "invalid UTXO - nil RecipientAddress",
+			utxo: types.UTXO{
+				TxID:             validTxID,
+				OutputIndex:      2,
+				Amount:           50,
+				RecipientAddress: nil,
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidRecipientAddress,
+		},
+		{
+			name: "invalid UTXO - empty RecipientAddress",
+			utxo: types.UTXO{
+				TxID:             validTxID,
+				OutputIndex:      3,
+				Amount:           50,
+				RecipientAddress: types.Address{},
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidRecipientAddress,
+		},
+		// Note: UTXO.Validate() currently doesn't enforce address length,
+		// so a test for wrong address length would pass if not for other errors.
+		// If UTXO.Validate() is updated to check address length like TransactionOutput.Validate(),
+		// then a specific test for that should be added.
+		// For now, the "valid UTXO" uses an address of a specific length for good practice.
+		{
+			name: "invalid UTXO - wrong RecipientAddress length",
+			utxo: types.UTXO{
+				TxID:             validTxID,
+				OutputIndex:      4,
+				Amount:           100,
+				RecipientAddress: types.Address("shortAddress"), // Wrong length
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidAddressLength,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.utxo.Validate()
+			checkError(t, err, tc.expectedErrType, tc.wantErr)
+		})
+	}
+}
+
 func TestAccount_Validate(t *testing.T) {
 	validAddress := types.Address("validAccountAddress")
 

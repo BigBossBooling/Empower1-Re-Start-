@@ -460,4 +460,39 @@ func (to *TransactionOutput) Validate() error {
 // Validator struct (could be an extension of Account or separate)
 // Stake struct (linking Account to staked amount and duration)
 // RewardDistributionLog (could be a transaction type or metadata)
+
+// UTXO represents an Unspent Transaction Output.
+// It is a core component for UTXO-based state management aspects.
+type UTXO struct {
+	TxID             Hash    `json:"txId"`          // The transaction ID where this UTXO was created
+	OutputIndex      uint32  `json:"outputIndex"`   // The index of the output in the transaction
+	Amount           uint64  `json:"amount"`        // The value of this UTXO
+	RecipientAddress Address `json:"recipientAddress"`// The address that can spend this UTXO
+	// IsSpent (optional, if UTXOs are kept in a list and marked, vs removed when spent)
+	// BlockHeightCreatedAt (optional, for coin age calculations)
+}
+
+// Validate checks the structural validity of the UTXO.
+func (u *UTXO) Validate() error {
+	var zeroHash Hash
+	if u.TxID == zeroHash {
+		return fmt.Errorf("UTXO TxID cannot be zero hash: %w", internalerrors.ErrInvalidTransactionID)
+	}
+
+	// OutputIndex can be 0. No specific upper bound check here unless protocol defines max outputs per tx.
+
+	if u.Amount == 0 { // UTXOs should generally have value to be spendable
+		return fmt.Errorf("UTXO amount cannot be zero: %w", internalerrors.ErrInvalidOutputAmount)
+	}
+
+	if u.RecipientAddress == nil || len(u.RecipientAddress) == 0 {
+		return fmt.Errorf("UTXO recipient address cannot be empty: %w", internalerrors.ErrInvalidRecipientAddress)
+	}
+	// Enforce address length check, similar to TransactionOutput.
+	const expectedAddressLength = 20 // Example: 20-byte address
+	if len(u.RecipientAddress) != expectedAddressLength {
+		return fmt.Errorf("UTXO recipient address length %d is not the expected %d bytes: %w", len(u.RecipientAddress), expectedAddressLength, internalerrors.ErrInvalidAddressLength)
+	}
+	return nil
+}
 ```
