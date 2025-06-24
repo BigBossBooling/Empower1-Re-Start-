@@ -3,52 +3,14 @@ package types_test
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
 	// Assuming 'empower1/internal/core/types' is the Go module path to our types
 	// Adjust if the actual module path is different.
 	"empower1/internal/core/types"
-	// Placeholder for a shared errors package, to be created.
-	// For now, we might compare against error messages or define temporary error vars here.
-	// "empower1/internal/errors"
-)
-
-// Placeholder for actual error variables that would be defined in 'internal/errors'.
-// These are used for errors.Is comparisons.
-var (
-	ErrTestInvalidTransactionID       = errors.New("transaction ID cannot be zero hash") // Example
-	ErrTestInvalidTransactionType     = errors.New("unknown transaction type")
-	ErrTestNoTransactionOutputs     = errors.New("transaction outputs cannot be nil or empty")
-	ErrTestZeroTimestamp            = errors.New("timestamp cannot be zero")
-	ErrTestEmptyInputsForSpendingTx = errors.New("inputs cannot be empty for a spending transaction type")
-	ErrTestTransactionInputFailed   = errors.New("transaction input validation failed")
-	ErrTestTransactionOutputFailed  = errors.New("transaction output validation failed")
-	ErrTestMissingSignature         = errors.New("missing signature")
-	ErrTestMissingPublicKey         = errors.New("missing public key")
-	ErrTestInvalidMetadataKey       = errors.New("invalid metadata key")
-	ErrTestInvalidMetadataValueSize = errors.New("metadata value size exceeds limit")
-	ErrTestMissingRequiredMetadata  = errors.New("missing required metadata field")
-
-	ErrTestInvalidPreviousTxHash   = errors.New("previous transaction hash cannot be zero hash")
-	ErrTestMissingInputSignature   = errors.New("input signature cannot be empty")
-	ErrTestMissingInputPublicKey   = errors.New("input public key cannot be empty")
-
-	ErrTestInvalidRecipientAddress = errors.New("recipient address cannot be empty")
-	ErrTestInvalidOutputAmount     = errors.New("output amount must be greater than zero")
-
-	ErrTestInvalidBlockVersion      = errors.New("unsupported block version")
-	ErrTestInvalidPrevBlockHash     = errors.New("previous block hash cannot be zero for non-genesis")
-	ErrTestInvalidMerkleRoot        = errors.New("merkle root cannot be zero hash")
-	ErrTestInvalidBlockTimestamp    = errors.New("block timestamp is out of acceptable range")
-	ErrTestMissingProposerAddress   = errors.New("block proposer address cannot be empty")
-
-	ErrTestBlockHeaderFailed        = errors.New("block header validation failed")
-	ErrTestBlockTransactionFailed   = errors.New("block transaction validation failed")
-	ErrTestInvalidBlockHash         = errors.New("block hash cannot be zero hash")
-
-	ErrTestInvalidAccountAddress    = errors.New("account address cannot be empty")
-	ErrTestInvalidReputationScore   = errors.New("reputation score is outside the valid range")
+	internalerrors "empower1/internal/errors"
 )
 
 // Helper function to create a zero hash for comparisons
@@ -151,6 +113,65 @@ func TestTransaction_SerializationJSON(t *testing.T) {
 	// that handles all fields, including slices and maps.
 	// e.g. if !reflect.DeepEqual(originalTx, newTx) { t.Errorf("Transaction changed after JSON roundtrip") }
 	// This often requires all fields to be exportable and for time.Time to be handled carefully by the JSON lib.
+
+	// More robust comparison using reflect.DeepEqual
+	// Note: For DeepEqual to work reliably with time.Time, ensure consistent time zone handling (e.g., always UTC).
+	// JSON marshalling of time.Time typically preserves timezone info if present or defaults to UTC.
+	if !reflect.DeepEqual(originalTx, newTx) {
+		t.Errorf("Transaction differs after JSON roundtrip.\nOriginal: %+v\nNew:      %+v", originalTx, newTx)
+	}
+
+	// Test with nil/empty slices and map
+	emptyTx := types.Transaction{
+		TxID:      sampleHash(12),
+		Type:      types.TaxTransaction,
+		Inputs:    nil, // Test nil slice
+		Outputs:   []types.TransactionOutput{}, // Test empty slice
+		Timestamp: validTimestamp,
+		Signature: []byte("sig"),
+		PublicKey: []byte("pubkey"),
+		Fee:       5,
+		Nonce:     2,
+		Metadata:  nil, // Test nil map
+	}
+
+	jsonDataEmpty, err := emptyTx.ToJSON()
+	if err != nil {
+		t.Fatalf("ToJSON() for emptyTx failed: %v", err)
+	}
+	var newEmptyTx types.Transaction
+	err = newEmptyTx.FromJSON(jsonDataEmpty)
+	if err != nil {
+		t.Fatalf("FromJSON() for emptyTx failed: %v", err)
+	}
+	if !reflect.DeepEqual(emptyTx, newEmptyTx) {
+		t.Errorf("emptyTx differs after JSON roundtrip.\nOriginal: %+v\nNew:      %+v", emptyTx, newEmptyTx)
+	}
+
+	// Test with empty map for metadata
+	emptyMetaTx := types.Transaction{
+		TxID:      sampleHash(13),
+		Type:      types.GovernanceTransaction,
+		Outputs:   []types.TransactionOutput{{RecipientAddress: types.Address("addrGov"), Amount: 1}},
+		Timestamp: validTimestamp,
+		Signature: []byte("govSig"),
+		PublicKey: []byte("govPubkey"),
+		Fee:       1,
+		Nonce:     3,
+		Metadata:  map[string][]byte{}, // Test empty map
+	}
+	jsonDataEmptyMeta, err := emptyMetaTx.ToJSON()
+	if err != nil {
+		t.Fatalf("ToJSON() for emptyMetaTx failed: %v", err)
+	}
+	var newEmptyMetaTx types.Transaction
+	err = newEmptyMetaTx.FromJSON(jsonDataEmptyMeta)
+	if err != nil {
+		t.Fatalf("FromJSON() for emptyMetaTx failed: %v", err)
+	}
+	if !reflect.DeepEqual(emptyMetaTx, newEmptyMetaTx) {
+		t.Errorf("emptyMetaTx differs after JSON roundtrip.\nOriginal: %+v\nNew:      %+v", emptyMetaTx, newEmptyMetaTx)
+	}
 }
 
 func TestBlock_SerializationJSON(t *testing.T) {
@@ -207,6 +228,61 @@ func TestBlock_SerializationJSON(t *testing.T) {
 		t.Errorf("Number of transactions mismatch.")
 	}
 	// Add more comprehensive checks with reflect.DeepEqual once (de)serialization methods are firm.
+	if !reflect.DeepEqual(originalBlock, newBlock) {
+		t.Errorf("Block differs after JSON roundtrip.\nOriginal: %+v\nNew:      %+v", originalBlock, newBlock)
+	}
+
+	// Test with empty transactions
+	emptyTxBlock := types.Block{
+		Header: types.BlockHeader{
+			Version:           1,
+			PreviousBlockHash: sampleHash(30),
+			MerkleRoot:        sampleHash(31), // Should ideally be hash of empty list
+			Timestamp:         validTimestamp,
+			Height:            2,
+			ProposerAddress:   types.Address("proposer2"),
+		},
+		Transactions: []types.Transaction{}, // Empty slice
+		BlockHash:    sampleHash(32),
+	}
+	jsonDataEmptyTx, err := emptyTxBlock.ToJSON()
+	if err != nil {
+		t.Fatalf("ToJSON() for emptyTxBlock failed: %v", err)
+	}
+	var newEmptyTxBlock types.Block
+	err = newEmptyTxBlock.FromJSON(jsonDataEmptyTx)
+	if err != nil {
+		t.Fatalf("FromJSON() for emptyTxBlock failed: %v", err)
+	}
+	if !reflect.DeepEqual(emptyTxBlock, newEmptyTxBlock) {
+		t.Errorf("emptyTxBlock differs after JSON roundtrip.\nOriginal: %+v\nNew:      %+v", emptyTxBlock, newEmptyTxBlock)
+	}
+
+	// Test with nil transactions (should be handled same as empty by encoding/json for slices)
+	nilTxBlock := types.Block{
+		Header: types.BlockHeader{
+			Version:           1,
+			PreviousBlockHash: sampleHash(40),
+			MerkleRoot:        sampleHash(41),
+			Timestamp:         validTimestamp,
+			Height:            3,
+			ProposerAddress:   types.Address("proposer3"),
+		},
+		Transactions: nil, // Nil slice
+		BlockHash:    sampleHash(42),
+	}
+	jsonDataNilTx, err := nilTxBlock.ToJSON()
+	if err != nil {
+		t.Fatalf("ToJSON() for nilTxBlock failed: %v", err)
+	}
+	var newNilTxBlock types.Block
+	err = newNilTxBlock.FromJSON(jsonDataNilTx)
+	if err != nil {
+		t.Fatalf("FromJSON() for nilTxBlock failed: %v", err)
+	}
+	if !reflect.DeepEqual(nilTxBlock, newNilTxBlock) {
+		t.Errorf("nilTxBlock differs after JSON roundtrip.\nOriginal: %+v\nNew:      %+v", nilTxBlock, newNilTxBlock)
+	}
 }
 
 // TODO: Add similar placeholder tests for other serialization formats if planned (e.g., binary).
@@ -241,7 +317,7 @@ func TestAccount_Validate(t *testing.T) {
 				ReputationScore: 100,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidAccountAddress,
+			expectedErrType: internalerrors.ErrInvalidAccountAddress,
 		},
 		{
 			name: "invalid Address (empty)",
@@ -252,7 +328,7 @@ func TestAccount_Validate(t *testing.T) {
 				ReputationScore: 100,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidAccountAddress,
+			expectedErrType: internalerrors.ErrInvalidAccountAddress,
 		},
 		// Balance and Nonce are uint64, so they cannot be negative.
 		// Zero is a valid state for both.
@@ -269,7 +345,7 @@ func TestAccount_Validate(t *testing.T) {
 			// For now, this might pass if Validate() doesn't check bounds.
 			// Marking as wantErr: true, assuming bounds check will be part of Account.Validate()
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidReputationScore,
+			expectedErrType: internalerrors.ErrInvalidReputationScore,
 		},
 		{
 			name: "invalid ReputationScore (above max bound if defined)",
@@ -280,7 +356,7 @@ func TestAccount_Validate(t *testing.T) {
 				ReputationScore: 2000000, // Assuming a bound like -1M to +1M
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidReputationScore,
+			expectedErrType: internalerrors.ErrInvalidReputationScore,
 		},
 	}
 
@@ -377,7 +453,7 @@ func TestBlock_Validate(t *testing.T) {
 				BlockHash:    sampleHash(8),
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestBlockHeaderFailed, // Should wrap ErrTestZeroTimestamp
+			expectedErrType: internalerrors.ErrBlockHeaderValidationFailed,
 		},
 		{
 			name: "block with an invalid transaction",
@@ -394,7 +470,7 @@ func TestBlock_Validate(t *testing.T) {
 				BlockHash: sampleHash(9),
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestBlockTransactionFailed, // Should wrap ErrTestInvalidTransactionID
+			expectedErrType: internalerrors.ErrBlockTransactionValidationFailed,
 		},
 		{
 			name: "invalid BlockHash (all-zero)",
@@ -404,10 +480,20 @@ func TestBlock_Validate(t *testing.T) {
 				BlockHash:    zeroHash(), // Invalid
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidBlockHash,
+			expectedErrType: internalerrors.ErrInvalidBlockHash,
 		},
 		// TODO: Add tests for max transactions per block if check added to Block.Validate()
 		// TODO: Add tests for max block size if check added to Block.Validate()
+		{
+			name: "too many transactions",
+			block: types.Block{
+				Header:       validBlockHeader,
+				Transactions: make([]types.Transaction, 10001), // 10001 transactions
+				BlockHash:    sampleHash(10),
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrMaxTransactionsPerBlockExceeded,
+		},
 	}
 
 	for _, tc := range tests {
@@ -471,7 +557,7 @@ func TestBlockHeader_Validate(t *testing.T) {
 				ProposerAddress:   validProposerAddress,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidBlockVersion,
+			expectedErrType: internalerrors.ErrInvalidBlockVersion,
 		},
 		{
 			name: "PreviousBlockHash is all-zero for non-genesis block",
@@ -484,7 +570,7 @@ func TestBlockHeader_Validate(t *testing.T) {
 				ProposerAddress:   validProposerAddress,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidPrevBlockHash,
+			expectedErrType: internalerrors.ErrInvalidPreviousBlockHash,
 		},
 		{
 			name: "MerkleRoot is all-zero",
@@ -497,7 +583,7 @@ func TestBlockHeader_Validate(t *testing.T) {
 				ProposerAddress:   validProposerAddress,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidMerkleRoot,
+			expectedErrType: internalerrors.ErrInvalidMerkleRoot,
 		},
 		{
 			name: "Timestamp is zero",
@@ -510,7 +596,7 @@ func TestBlockHeader_Validate(t *testing.T) {
 				ProposerAddress:   validProposerAddress,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestZeroTimestamp, // Assuming BlockHeader uses generic ErrTestZeroTimestamp
+			expectedErrType: internalerrors.ErrZeroTimestamp,
 		},
 		// TODO: Add test for Timestamp out of reasonable range if specific logic is in Validate()
 		{
@@ -524,7 +610,7 @@ func TestBlockHeader_Validate(t *testing.T) {
 				ProposerAddress:   types.Address{}, // Invalid
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestMissingProposerAddress,
+			expectedErrType: internalerrors.ErrMissingProposerAddress,
 		},
 		// TODO: Add tests for Difficulty (e.g. zero for PoW) if logic is in Validate()
 		// TODO: Add tests for Nonce if specific validation rules apply
@@ -564,7 +650,7 @@ func TestTransactionOutput_Validate(t *testing.T) {
 				Amount:           100,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidRecipientAddress,
+			expectedErrType: internalerrors.ErrInvalidRecipientAddress,
 		},
 		{
 			name: "empty RecipientAddress",
@@ -573,7 +659,7 @@ func TestTransactionOutput_Validate(t *testing.T) {
 				Amount:           100,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidRecipientAddress,
+			expectedErrType: internalerrors.ErrInvalidRecipientAddress,
 		},
 		{
 			name: "zero Amount for standard transfer",
@@ -582,7 +668,7 @@ func TestTransactionOutput_Validate(t *testing.T) {
 				Amount:           0, // Invalid for standard transfers
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidOutputAmount,
+			expectedErrType: internalerrors.ErrInvalidOutputAmount,
 		},
 		// TODO: Add test for RecipientAddress invalid length if that check is added to Validate()
 		// TODO: Add test for Amount exceeding max supply if that check is added
@@ -626,7 +712,7 @@ func TestTransactionInput_Validate(t *testing.T) {
 				PublicKey:      validPublicKey,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidPreviousTxHash,
+			expectedErrType: internalerrors.ErrInvalidPreviousTxHash,
 		},
 		{
 			name: "missing Signature",
@@ -637,7 +723,7 @@ func TestTransactionInput_Validate(t *testing.T) {
 				PublicKey:      validPublicKey,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestMissingInputSignature,
+			expectedErrType: internalerrors.ErrMissingInputSignature,
 		},
 		{
 			name: "empty Signature",
@@ -648,7 +734,7 @@ func TestTransactionInput_Validate(t *testing.T) {
 				PublicKey:      validPublicKey,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestMissingInputSignature,
+			expectedErrType: internalerrors.ErrMissingInputSignature,
 		},
 		{
 			name: "missing PublicKey",
@@ -659,7 +745,7 @@ func TestTransactionInput_Validate(t *testing.T) {
 				PublicKey:      nil, // Invalid
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestMissingInputPublicKey,
+			expectedErrType: internalerrors.ErrMissingInputPublicKey,
 		},
 		{
 			name: "empty PublicKey",
@@ -670,7 +756,7 @@ func TestTransactionInput_Validate(t *testing.T) {
 				PublicKey:      []byte{}, // Invalid
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestMissingInputPublicKey,
+			expectedErrType: internalerrors.ErrMissingInputPublicKey,
 		},
 		// TODO: Add tests for invalid signature/public key lengths if those checks are added to Validate()
 	}
@@ -765,7 +851,7 @@ func TestTransaction_Validate(t *testing.T) {
 				Fee:       10,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidTransactionID, // Placeholder
+			expectedErrType: internalerrors.ErrInvalidTransactionID,
 		},
 		{
 			name: "invalid Type (unknown numeric value)",
@@ -779,7 +865,7 @@ func TestTransaction_Validate(t *testing.T) {
 				Fee:       10,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidTransactionType, // Placeholder
+			expectedErrType: internalerrors.ErrUnknownTransactionType,
 		},
 		{
 			name: "nil Outputs slice",
@@ -793,7 +879,7 @@ func TestTransaction_Validate(t *testing.T) {
 				Fee:       10,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestNoTransactionOutputs, // Placeholder
+			expectedErrType: internalerrors.ErrNoTransactionOutputs,
 		},
 		{
 			name: "empty Outputs slice",
@@ -807,7 +893,7 @@ func TestTransaction_Validate(t *testing.T) {
 				Fee:       10,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestNoTransactionOutputs, // Placeholder
+			expectedErrType: internalerrors.ErrNoTransactionOutputs,
 		},
 		{
 			name: "zero Timestamp",
@@ -821,7 +907,7 @@ func TestTransaction_Validate(t *testing.T) {
 				Fee:       10,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestZeroTimestamp, // Placeholder
+			expectedErrType: internalerrors.ErrZeroTimestamp,
 		},
 		{
 			name: "empty Inputs slice for spending type",
@@ -836,7 +922,7 @@ func TestTransaction_Validate(t *testing.T) {
 				Fee:       10,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestEmptyInputsForSpendingTx, // Placeholder
+			expectedErrType: internalerrors.ErrEmptyInputsForSpendingTx,
 		},
 		{
 			name: "invalid TransactionInput in Inputs",
@@ -853,7 +939,7 @@ func TestTransaction_Validate(t *testing.T) {
 				Fee:       10,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestTransactionInputFailed, // Placeholder, should wrap ErrTestInvalidPreviousTxHash
+			expectedErrType: internalerrors.ErrTransactionInputValidationFailed,
 		},
 		{
 			name: "invalid TransactionOutput in Outputs",
@@ -870,7 +956,7 @@ func TestTransaction_Validate(t *testing.T) {
 				Fee:       10,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestTransactionOutputFailed, // Placeholder, should wrap ErrTestInvalidRecipientAddress
+			expectedErrType: internalerrors.ErrTransactionOutputValidationFailed,
 		},
 		{
 			name: "missing Signature for account-based type",
@@ -885,7 +971,7 @@ func TestTransaction_Validate(t *testing.T) {
 				Fee:       10,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestMissingSignature, // Placeholder
+			expectedErrType: internalerrors.ErrMissingSignature,
 		},
 		{
 			name: "missing PublicKey for account-based type",
@@ -900,7 +986,7 @@ func TestTransaction_Validate(t *testing.T) {
 				Fee:       10,
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestMissingPublicKey, // Placeholder
+			expectedErrType: internalerrors.ErrMissingPublicKey,
 		},
 		{
 			name: "invalid Metadata key (empty)",
@@ -915,7 +1001,7 @@ func TestTransaction_Validate(t *testing.T) {
 				Metadata:  map[string][]byte{"": []byte("value")}, // Invalid
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestInvalidMetadataKey, // Placeholder
+			expectedErrType: internalerrors.ErrInvalidMetadataKey,
 		},
 		// TODO: Add test for Metadata key too long if max length defined
 		// TODO: Add test for Metadata value too large if max size defined
@@ -932,7 +1018,7 @@ func TestTransaction_Validate(t *testing.T) {
 				Metadata:  map[string][]byte{"note": []byte("stimulus")}, // Missing AILogicID, AIProof
 			},
 			wantErr:         true,
-			expectedErrType: ErrTestMissingRequiredMetadata, // Placeholder
+			expectedErrType: internalerrors.ErrMissingRequiredMetadata,
 		},
 		{
 			name: "valid StimulusTransaction with AI metadata",
