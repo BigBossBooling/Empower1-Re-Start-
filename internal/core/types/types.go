@@ -235,32 +235,39 @@ func (bh *BlockHeader) Validate() error {
 		return internalerrors.ErrZeroTimestamp // More generic zero time error
 	}
 	// Conceptual: Add range check for timestamp (e.g., not too far in future/past from network time)
-	// This often requires access to current network time or median of past blocks, making it
-	// not purely stateless. A basic sanity check:
-	// const EmPower1EpochStartUnix = 1609459200 // Example: Jan 1, 2021 UTC
-	// if bh.Timestamp.Unix() < EmPower1EpochStartUnix {
-	//    return fmt.Errorf("block timestamp precedes EmPower1 epoch: %w", internalerrors.ErrInvalidBlockTimestamp)
-	// }
-	// if bh.Timestamp.After(time.Now().Add(2 * time.Hour)) { // Max 2 hours in future
-	//    return fmt.Errorf("block timestamp too far in future: %w", internalerrors.ErrInvalidBlockTimestamp)
-	// }
+	const EmPower1EpochStartUnix = 1609459200 // Example: Jan 1, 2021 UTC
+	if bh.Timestamp.Unix() < EmPower1EpochStartUnix {
+	   return fmt.Errorf("block timestamp %v precedes EmPower1 epoch %d: %w", bh.Timestamp, EmPower1EpochStartUnix, internalerrors.ErrInvalidBlockTimestamp)
+	}
+	// Allow blocks to be slightly in the future to account for clock drift, but not excessively.
+	// This check uses time.Now(), which means test results can vary. For truly deterministic
+	// tests of this rule, time.Now() would need to be mockable or the check made relative to parent block time.
+	// For stateless validation, a very generous future limit or no future check is common.
+	// Let's assume a simple check against a "too far future" constant for this example.
+	const maxFutureTimeOffset = 2 * time.Hour
+	if bh.Timestamp.After(time.Now().Add(maxFutureTimeOffset)) {
+	   return fmt.Errorf("block timestamp %v is too far in the future (max %v from now): %w", bh.Timestamp, maxFutureTimeOffset, internalerrors.ErrInvalidBlockTimestamp)
+	}
 
 
 	if bh.ProposerAddress == nil || len(bh.ProposerAddress) == 0 {
 		return internalerrors.ErrMissingProposerAddress
 	}
 	// Conceptual: Add address length/format check for ProposerAddress
-	// if len(bh.ProposerAddress) != ExpectedAddressLength {
-	//    return internalerrors.ErrInvalidAddressLength
+	// const expectedProposerAddressLength = 20
+	// if len(bh.ProposerAddress) != expectedProposerAddressLength {
+	//    return fmt.Errorf("proposer address length %d is not expected %d: %w", len(bh.ProposerAddress), expectedProposerAddressLength, internalerrors.ErrInvalidAddressLength)
 	// }
 
 	// Nonce and Difficulty validation depends heavily on the consensus mechanism (PoW vs PoS).
-	// For PoW, Difficulty > 0 would be a rule.
-	// For PoS, these might have different meanings or default values.
-	// Example for PoW:
-	// if isPoWConsensus && bh.Difficulty == 0 {
-	//    return internalerrors.ErrInvalidDifficulty
-	// }
+	// Assuming PoW for this example where Difficulty > 0 is a rule.
+	// For PoS, this field might be repurposed or set to a default (e.g., 0 or 1).
+	isPoWConsensus := true // Example: Assume PoW for now for this check
+	if isPoWConsensus && bh.Difficulty == 0 && bh.Height > 0 { // Genesis block might have specific difficulty
+	   return internalerrors.ErrInvalidDifficulty
+	}
+	// Nonce validation is usually tied to meeting the difficulty target, which is not a stateless check.
+	// A basic stateless check for Nonce might be ensuring it's not a specific forbidden value if any.
 
 	// Height is uint64, so always >= 0. Specific check for Height == 0 is tied to PreviousBlockHash.
 
@@ -396,9 +403,13 @@ func (ti *TransactionInput) Validate() error {
 		return internalerrors.ErrMissingInputSignature
 	}
 	// Conceptual: Add signature length check if a specific scheme imposes it.
-	// if len(ti.Signature) > MaxSignatureLength || len(ti.Signature) < MinSignatureLength {
-	//     return internalerrors.ErrInvalidSignatureLength
-	// }
+	// For example, typical ECDSA signatures (r,s components) are around 64-72 bytes.
+	// Let's set an arbitrary reasonable max and min for this example.
+	const minSigLength = 60
+	const maxSigLength = 75
+	if len(ti.Signature) < minSigLength || len(ti.Signature) > maxSigLength {
+	    return fmt.Errorf("signature length %d is out of range [%d, %d]: %w", len(ti.Signature), minSigLength, maxSigLength, internalerrors.ErrInvalidSignatureLength)
+	}
 
 	// Check PublicKey (must not be empty)
 	if ti.PublicKey == nil || len(ti.PublicKey) == 0 {
@@ -406,22 +417,25 @@ func (ti *TransactionInput) Validate() error {
 	}
 	// Conceptual: Add public key length check based on chosen curve.
 	// e.g., for SECP256k1 compressed:
-	// const expectedPubKeyLength = 33
-	// if len(ti.PublicKey) != expectedPubKeyLength {
-	//     return internalerrors.ErrInvalidPublicKeyLength
-	// }
+	const expectedPubKeyLength = 33
+	if len(ti.PublicKey) != expectedPubKeyLength {
+	    return fmt.Errorf("public key length %d is not the expected %d bytes: %w", len(ti.PublicKey), expectedPubKeyLength, internalerrors.ErrInvalidPublicKeyLength)
+	}
 	return nil
 }
 
 // Validate checks the structural validity of the TransactionOutput.
 func (to *TransactionOutput) Validate() error {
 	if to.RecipientAddress == nil || len(to.RecipientAddress) == 0 {
-		return internalerrors.ErrInvalidRecipientAddress // Use error from internalerrors
+		return internalerrors.ErrInvalidRecipientAddress
 	}
 	// Conceptual: Add address length check if a fixed length is decided.
-	// if len(to.RecipientAddress) != ExpectedAddressLength {
-	//     return internalerrors.ErrInvalidAddressLength
-	// }
+	// For example, if addresses are expected to be a P2PKH-style hash (e.g., 20 bytes for payload + version/checksum)
+	// or a fixed-length public key hash. Let's assume a hypothetical fixed length for this example.
+	const expectedAddressLength = 20 // Example: 20-byte address (e.g. RIPEMD160(SHA256(pubkey)))
+	if len(to.RecipientAddress) != expectedAddressLength {
+		return fmt.Errorf("recipient address length %d is not the expected %d bytes: %w", len(to.RecipientAddress), expectedAddressLength, internalerrors.ErrInvalidAddressLength)
+	}
 
 	// For standard transfers, amount must be positive.
 	// Specific transaction types might allow zero amount for other purposes (e.g., data, contract interaction).

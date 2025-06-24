@@ -28,7 +28,7 @@ func sampleHash(val byte) types.Hash {
 }
 
 // Helper function to compare error types or messages if internal/errors is not yet implemented.
-// This is a temporary measure. Ideally, we'd use errors.Is() with globally defined error variables.
+// This helper robustly checks errors using errors.Is for proper error wrapping comparisons.
 func checkError(t *testing.T, gotErr, wantErrType error, wantErr bool) {
 	t.Helper()
 	if wantErr {
@@ -36,20 +36,18 @@ func checkError(t *testing.T, gotErr, wantErrType error, wantErr bool) {
 			t.Errorf("expected an error but got nil")
 			return
 		}
-		// TODO: Replace this with errors.Is(gotErr, wantErrType) once internal/errors is set up
-		// For now, we can check if the error message contains the expected message part,
-		// or if we use sentinel errors defined locally for testing.
-		if wantErrType != nil && !errors.Is(gotErr, wantErrType) {
-			// This is a crude check if errors.Is doesn't work directly with locally defined vars
-			// across packages or if the wrapped error messages differ.
-			// A more robust solution is to have proper error types in internal/errors.
-			// For now, let's assume our locally defined ErrTest... vars work with errors.Is
-			// if the Validate methods return them directly or wrap them appropriately.
-			t.Errorf("got error type %T, want %T (or wrapped equivalent). Error: %v", gotErr, wantErrType, gotErr)
+		if wantErrType == nil {
+			// This case should ideally not happen if wantErr is true,
+			// it implies the test setup might be expecting an error but not specifying which one.
+			t.Logf("warning: wantErr is true but wantErrType is nil. Error received: %v", gotErr)
+			return
 		}
-	} else {
+		if !errors.Is(gotErr, wantErrType) {
+			t.Errorf("got error '%v' (type %T), want error to wrap or be of type %T (base error: '%v')", gotErr, gotErr, wantErrType, wantErrType)
+		}
+	} else { // wantErr is false
 		if gotErr != nil {
-			t.Errorf("did not expect an error but got: %v", gotErr)
+			t.Errorf("did not expect an error but got: %v (type %T)", gotErr, gotErr)
 		}
 	}
 }
@@ -282,6 +280,47 @@ func TestBlock_SerializationJSON(t *testing.T) {
 	}
 	if !reflect.DeepEqual(nilTxBlock, newNilTxBlock) {
 		t.Errorf("nilTxBlock differs after JSON roundtrip.\nOriginal: %+v\nNew:      %+v", nilTxBlock, newNilTxBlock)
+	}
+
+	// Test with multiple, varied transactions
+	multiTx1 := types.Transaction{
+		TxID:      sampleHash(50),
+		Type:      types.StandardTransaction,
+		Outputs:   []types.TransactionOutput{{RecipientAddress: types.Address("addrMulti1"), Amount: 10}},
+		Timestamp: validTimestamp.Add(-2 * time.Minute),
+		Fee:       1,
+	}
+	multiTx2 := types.Transaction{
+		TxID:      sampleHash(51),
+		Type:      types.StimulusTransaction,
+		Outputs:   []types.TransactionOutput{{RecipientAddress: types.Address("addrMulti2"), Amount: 20}},
+		Timestamp: validTimestamp.Add(-3 * time.Minute),
+		Fee:       0,
+		Metadata:  map[string][]byte{"AILogicID": []byte("stimulusAI")},
+	}
+	multiTxBlock := types.Block{
+		Header: types.BlockHeader{
+			Version:           1,
+			PreviousBlockHash: sampleHash(52),
+			MerkleRoot:        sampleHash(53), // Placeholder, real would be complex
+			Timestamp:         validTimestamp,
+			Height:            4,
+			ProposerAddress:   types.Address("proposer4"),
+		},
+		Transactions: []types.Transaction{multiTx1, multiTx2},
+		BlockHash:    sampleHash(54),
+	}
+	jsonDataMultiTx, err := multiTxBlock.ToJSON()
+	if err != nil {
+		t.Fatalf("ToJSON() for multiTxBlock failed: %v", err)
+	}
+	var newMultiTxBlock types.Block
+	err = newMultiTxBlock.FromJSON(jsonDataMultiTx)
+	if err != nil {
+		t.Fatalf("FromJSON() for multiTxBlock failed: %v", err)
+	}
+	if !reflect.DeepEqual(multiTxBlock, newMultiTxBlock) {
+		t.Errorf("multiTxBlock differs after JSON roundtrip.\nOriginal: %+v\nNew:      %+v", multiTxBlock, newMultiTxBlock)
 	}
 }
 
@@ -598,7 +637,33 @@ func TestBlockHeader_Validate(t *testing.T) {
 			wantErr:         true,
 			expectedErrType: internalerrors.ErrZeroTimestamp,
 		},
-		// TODO: Add test for Timestamp out of reasonable range if specific logic is in Validate()
+		// Note: Timestamp range checks (too far future, before epoch) are now tested.
+		{
+			name: "Timestamp too far in future",
+			header: types.BlockHeader{
+				Version:           currentBlockVersion,
+				PreviousBlockHash: validPrevBlockHash,
+				MerkleRoot:        validMerkleRoot,
+				Timestamp:         time.Now().Add(3 * time.Hour), // Too far
+				Height:            1,
+				ProposerAddress:   validProposerAddress,
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidBlockTimestamp,
+		},
+		{
+			name: "Timestamp before epoch",
+			header: types.BlockHeader{
+				Version:           currentBlockVersion,
+				PreviousBlockHash: validPrevBlockHash,
+				MerkleRoot:        validMerkleRoot,
+				Timestamp:         time.Unix(1609459199, 0), // Before Jan 1, 2021 UTC example epoch
+				Height:            1,
+				ProposerAddress:   validProposerAddress,
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidBlockTimestamp,
+		},
 		{
 			name: "ProposerAddress is empty",
 			header: types.BlockHeader{
@@ -612,7 +677,34 @@ func TestBlockHeader_Validate(t *testing.T) {
 			wantErr:         true,
 			expectedErrType: internalerrors.ErrMissingProposerAddress,
 		},
-		// TODO: Add tests for Difficulty (e.g. zero for PoW) if logic is in Validate()
+		// Note: PoW Difficulty zero for non-genesis is now tested.
+		{
+			name: "PoW Difficulty is zero for non-genesis",
+			header: types.BlockHeader{
+				Version:           currentBlockVersion,
+				PreviousBlockHash: validPrevBlockHash,
+				MerkleRoot:        validMerkleRoot,
+				Timestamp:         now,
+				Difficulty:        0, // Invalid for PoW non-genesis
+				Height:            1, // Non-genesis
+				ProposerAddress:   validProposerAddress,
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidDifficulty,
+		},
+		{
+			name: "PoW Difficulty is non-zero for genesis (valid)",
+			header: types.BlockHeader{
+				Version:           currentBlockVersion,
+				PreviousBlockHash: zeroHash(),
+				MerkleRoot:        validMerkleRoot,
+				Timestamp:         now.Add(-time.Hour),
+				Difficulty:        1, // Valid for genesis
+				Height:            0, // Genesis
+				ProposerAddress:   validProposerAddress,
+			},
+			wantErr: false, // This specific field is fine, overall validity depends on other fields
+		},
 		// TODO: Add tests for Nonce if specific validation rules apply
 	}
 
@@ -670,8 +762,25 @@ func TestTransactionOutput_Validate(t *testing.T) {
 			wantErr:         true,
 			expectedErrType: internalerrors.ErrInvalidOutputAmount,
 		},
-		// TODO: Add test for RecipientAddress invalid length if that check is added to Validate()
-		// TODO: Add test for Amount exceeding max supply if that check is added
+		// Note: RecipientAddress invalid length is now tested.
+		// TODO: Add test for Amount exceeding max supply if that check is added (consensus/stateful rule).
+		{
+			name: "invalid RecipientAddress (wrong length)",
+			output: types.TransactionOutput{
+				RecipientAddress: types.Address("shortAddress"), // Invalid length
+				Amount:           100,
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidAddressLength,
+		},
+		{
+			name: "valid RecipientAddress (correct length)",
+			output: types.TransactionOutput{
+				RecipientAddress: make(types.Address, 20), // Correct length
+				Amount:           100,
+			},
+			wantErr: false, // Should pass if amount is also valid
+		},
 	}
 
 	for _, tc := range tests {
@@ -759,6 +868,40 @@ func TestTransactionInput_Validate(t *testing.T) {
 			expectedErrType: internalerrors.ErrMissingInputPublicKey,
 		},
 		// TODO: Add tests for invalid signature/public key lengths if those checks are added to Validate()
+		{
+			name: "invalid signature length (too short)",
+			input: types.TransactionInput{
+				PreviousTxHash: validPrevTxHash,
+				OutputIndex:    0,
+				Signature:      make([]byte, 59), // Too short
+				PublicKey:      make([]byte, 33), // Valid length
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidSignatureLength,
+		},
+		{
+			name: "invalid signature length (too long)",
+			input: types.TransactionInput{
+				PreviousTxHash: validPrevTxHash,
+				OutputIndex:    0,
+				Signature:      make([]byte, 76), // Too long
+				PublicKey:      make([]byte, 33), // Valid length
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidSignatureLength,
+		},
+		{
+			name: "invalid public key length",
+			input: types.TransactionInput{
+				PreviousTxHash: validPrevTxHash,
+				OutputIndex:    0,
+				Signature:      make([]byte, 64), // Valid length
+				PublicKey:      make([]byte, 32), // Invalid length
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidPublicKeyLength,
+		},
+		// Note: Invalid signature/public key lengths are now tested.
 	}
 
 	for _, tc := range tests {
@@ -1003,8 +1146,7 @@ func TestTransaction_Validate(t *testing.T) {
 			wantErr:         true,
 			expectedErrType: internalerrors.ErrInvalidMetadataKey,
 		},
-		// TODO: Add test for Metadata key too long if max length defined
-		// TODO: Add test for Metadata value too large if max size defined
+		// Note: Metadata key too long and value too large are now tested.
 		{
 			name: "missing required AI metadata for StimulusTransaction",
 			tx: types.Transaction{
@@ -1036,6 +1178,36 @@ func TestTransaction_Validate(t *testing.T) {
 				},
 			},
 			wantErr: false,
+		},
+		{
+			name: "invalid Metadata key (too long)",
+			tx: types.Transaction{
+				TxID:      validTxID,
+				Type:      types.StandardTransaction,
+				Outputs:   []types.TransactionOutput{validOutput},
+				Timestamp: validTimestamp,
+				Signature: validSignature,
+				PublicKey: validPubKey,
+				Fee:       10,
+				Metadata:  map[string][]byte{string(make([]byte, 65)): []byte("value")}, // Key too long
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidMetadataKey,
+		},
+		{
+			name: "invalid Metadata value (too large)",
+			tx: types.Transaction{
+				TxID:      validTxID,
+				Type:      types.StandardTransaction,
+				Outputs:   []types.TransactionOutput{validOutput},
+				Timestamp: validTimestamp,
+				Signature: validSignature,
+				PublicKey: validPubKey,
+				Fee:       10,
+				Metadata:  map[string][]byte{"key": make([]byte, 257)}, // Value too large
+			},
+			wantErr:         true,
+			expectedErrType: internalerrors.ErrInvalidMetadataValueSize,
 		},
 	}
 
