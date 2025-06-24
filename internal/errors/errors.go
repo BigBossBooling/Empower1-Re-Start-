@@ -59,7 +59,10 @@ var (
 	ErrInvalidOperation       = errors.New("operation is invalid in the current context")
 	ErrSignatureFailed        = errors.New("cryptographic signature operation failed")
 	ErrTxIDAlreadySet         = errors.New("transaction ID is already set")
-
+	ErrUTXONotFound           = errors.New("UTXO not found")
+	ErrCriticalStateCorruption = errors.New("critical state corruption detected")
+	ErrAccountNotFound        = errors.New("account not found")      // For GetBalance/FindSpendableOutputs if account map is used
+	ErrInsufficientBalance    = errors.New("insufficient balance") // For FindSpendableOutputs
 )
 
 // TODO: Consider creating a custom error type that can include more context,
