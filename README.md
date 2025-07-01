@@ -84,9 +84,13 @@ The implications of EmPower1 Blockchain extend far beyond traditional finance an
     *   `ValidatorManager` to manage the validator set, handle staking (conceptual, in-memory), and select block producers using a round-robin strategy among active validators.
     *   Blockchain integrates with `ValidatorManager` for validator registration and block production.
     *   Block validation includes checks for known, active validators.
+*   **Native Currency (EPC):** Basic implementation including:
+    *   In-memory balance tracking (`Blockchain.balances`).
+    *   Initial coin distribution in the genesis block.
+    *   Processing of EPC transfers when blocks are mined/applied, including sender balance checks.
 *   **Intelligent Redistribution Engine (IRE):** Placeholder modules for future AI/ML-driven economic balancing.
 *   **Smart Contract Placeholders:** Initial classes for conceptual smart contract functionality.
-*   **Basic Testing Framework:** `pytest` setup with unit tests covering core components and basic network interactions.
+*   **Basic Testing Framework:** `pytest` setup with unit tests covering core components, networking, and native currency logic.
 *   **Basic Networking:**
     *   Nodes can be started via `cmd/node/main.py`, each running an HTTP (Flask) server.
     *   Peer discovery via seed nodes and peer-to-peer exchange (`/GET_PEERS`, `/NEW_PEER_ANNOUNCE`).
@@ -147,7 +151,7 @@ The implications of EmPower1 Blockchain extend far beyond traditional finance an
     ```bash
     python cmd/node/main.py 127.0.0.1 5001 http://127.0.0.1:5000
     ```
-    Once a node is running, it provides a simple CLI. Type `help` for available commands.
+    Once a node is running, it provides a simple CLI. Type `help` for available commands such as `transfer`, `getbalance`, `mine`, `stake`, etc.
 
 8.  **Detailed Documentation:**
     For more detailed information on project structure, components, and setup, please see the [Project Documentation](./docs/index.md).

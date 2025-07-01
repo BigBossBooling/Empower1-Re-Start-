@@ -9,7 +9,7 @@ class Transaction:
     Transactions are signed by the sender's wallet.
     """
     def __init__(self, sender_address: str, receiver_address: str, amount: float,
-                 asset_id: str = "empower_coin", timestamp: float = None,
+                 asset_id: str = "EPC", timestamp: float = None, # Default asset_id changed to EPC
                  fee: float = 0.0, metadata: dict = None, signature_hex: str = None):
         """
         Constructor for a Transaction.

@@ -46,19 +46,22 @@ class Validator:
             additional_stake (float): Amount to add to the current stake.
             new_total_stake (float): If provided and non-negative, sets the stake to this value.
         """
-        # First, validate type if new_total_stake is intended to be used
-        if new_total_stake != -1.0: # Check if it's different from default, meaning it was provided
+        if new_total_stake != -1.0:  # Check if new_total_stake was explicitly provided
             if not isinstance(new_total_stake, (int, float)):
                 raise ValueError("New total stake must be a number.")
             if new_total_stake < 0:
-                 raise ValueError("New total stake, if provided, must be non-negative.")
+                raise ValueError("New total stake cannot be negative.")
             self.stake = float(new_total_stake)
-        elif additional_stake != 0: # Only apply additional_stake if new_total_stake was not set
+        elif additional_stake != 0: # Only apply additional_stake if new_total_stake was not provided
             if not isinstance(additional_stake, (int, float)):
                 raise ValueError("Additional stake must be a number.")
             self.stake += float(additional_stake)
+            if self.stake < 0: # Ensure stake doesn't go negative from a negative additional_stake
+                self.stake = 0.0
+        # If both are defaults (new_total_stake=-1.0, additional_stake=0), stake remains unchanged.
 
-        # Ensure stake doesn't go negative from a negative additional_stake
+        # Final check, though above logic should prevent self.stake < 0 if new_total_stake is used.
+        # This is mainly for the case where only additional_stake is used and it's negative.
         if self.stake < 0:
             self.stake = 0.0
 

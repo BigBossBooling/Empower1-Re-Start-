@@ -40,7 +40,7 @@ def test_transaction_creation_minimal_crypto(alice_wallet, bob_wallet):
     assert tx.sender_address == alice_wallet.address
     assert tx.receiver_address == bob_wallet.address
     assert tx.amount == 5.0
-    assert tx.asset_id == "empower_coin" # Default asset_id
+    assert tx.asset_id == "EPC" # Default asset_id updated
     assert tx.fee == 0.0 # Default fee
     assert tx.metadata == {} # Default metadata
 

@@ -132,17 +132,27 @@ The primary way to run an EmPower1 node is using the `main.py` script in the `cm
    - Represents a block with an index, list of transactions, timestamp, previous hash, validator address, its own hash, and a validator's signature.
 
 ### 4.2. `Transaction`
-   - Represents a transaction with sender, receiver, amount, asset ID, fee, timestamp, and signature.
+   - Represents a transaction with sender address, receiver address, amount, `asset_id` (defaulting to "EPC" for the native currency), fee, timestamp, and a cryptographic signature.
 
 ### 4.3. `Wallet`
-   - Manages cryptographic key pairs (simplified) and can sign data.
+   - Manages ECDSA cryptographic key pairs (private/public) using the `secp256k1` curve.
+   - Generates wallet addresses derived from public keys.
+   - Provides methods to sign data (specifically, transaction hashes).
 
 ### 4.4. `Blockchain`
-   - Manages the chain of blocks, pending transactions.
+   - Manages the chain of blocks and pending transactions.
+   - **Native Currency (EPC):**
+     - Initializes `balances: Dict[str, float]` to track EPC balances for each address.
+     - Initializes `total_supply_epc: float`.
+     - Distributes an initial supply of EPC to the genesis validator in the genesis block.
+     - Includes `_process_transaction_for_state_changes(transaction)` method to update sender/receiver balances for valid EPC transfers when a block is applied. This method checks for sufficient funds.
    - Integrates with `ValidatorManager` for Proof-of-Stake (PoS) operations:
-     - `register_validator_wallet()`: Registers a node's wallet as a validator, passing staking information to the `ValidatorManager`.
-     - `mine_pending_transactions()`: Calls the `ValidatorManager` to select the next block producer. If the current node is selected, it mines a new block and signs it with its validator wallet.
-   - Validates incoming blocks and transactions, including cryptographic signatures and PoS rules (e.g., block signed by a known, active validator).
+     - `register_validator_wallet()`: Registers a node's wallet as a validator, interacting with `ValidatorManager` for staking.
+     - `mine_pending_transactions()`:
+       - Calls `ValidatorManager` to select the next block producer.
+       - Validates pending transactions against current state (including balances) before inclusion in a new block.
+       - If the current node is selected, it mines the block, signs it, and applies state changes (balance updates) from the included transactions.
+   - Validates incoming blocks and transactions, including cryptographic signatures, PoS rules, and transaction validity against current state.
 
 ### 4.5. Consensus (`empower1/consensus/`)
    - `validator.py`: Defines the `Validator` class, storing information like wallet address, public key, stake amount, active status, and last block production timestamp.
@@ -172,7 +182,17 @@ The primary way to run an EmPower1 node is using the `main.py` script in the `cm
 
 ### 4.9. Command-Line Interface (`cmd/node/main.py`)
    - A script to run an EmPower1 node. It initializes the Wallet, Blockchain, and Network components.
-   - Provides CLI commands for interacting with the node (e.g., creating transactions, mining, viewing chain/peers, staking).
+   - Provides CLI commands for interacting with the node:
+     - `transfer <receiver_addr> <amount> [asset_id] [metadata_json]`: Creates and broadcasts an EPC transfer. Defaults to EPC if asset_id omitted.
+     - `getbalance <address>`: Displays the EPC balance of a specified address.
+     - `faucet <address> <amount>`: (Test Only) Mints new EPC to an address.
+     - `mine`: Attempts to mine a block if the node is a selected validator and there are pending transactions.
+     - `chain`: Displays the local blockchain.
+     - `pending`: Shows pending transactions.
+     - `peers`: Lists known peers.
+     - `addpeer <http_address>`: Manually adds a peer.
+     - `mywallet`: Shows the node's wallet address, public key, and EPC balance.
+     - `stake <amount>`: Registers the node's wallet as a validator with the given EPC stake amount.
    - Connects to seed nodes on startup and participates in the P2P network.
 
 ## 5. Future Development & Contributions

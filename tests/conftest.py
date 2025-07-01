@@ -1,6 +1,7 @@
 import pytest
 import time
 import random
+from unittest.mock import patch # Added
 
 from empower1.wallet import Wallet
 from empower1.transaction import Transaction
@@ -117,7 +118,7 @@ def blockchain_with_one_validator(empty_blockchain_real_genesis, validator_walle
 
 
 @pytest.fixture
-def blockchain_with_transactions_pending(blockchain_with_one_validator, alice_wallet, bob_wallet, charlie_wallet):
+def blockchain_with_transactions_pending(blockchain_with_one_validator, alice_wallet, bob_wallet, charlie_wallet, validator_wallet): # Added validator_wallet
     """
     Returns a Blockchain with a registered validator and some pending transactions.
     Requires alice_wallet, bob_wallet, charlie_wallet to have their public keys in USER_PUBLIC_KEYS
@@ -139,14 +140,42 @@ def blockchain_with_transactions_pending(blockchain_with_one_validator, alice_wa
         amount=10.0, metadata={"fixture_tx": "tx1_pending"}
     )
     tx1.sign(alice_wallet)
-    bc.add_transaction(tx1, alice_wallet.get_public_key_hex())
+    # bc.add_transaction(tx1, alice_wallet.get_public_key_hex()) # Original problematic line
 
     tx2 = Transaction(
         sender_address=bob_wallet.address, receiver_address=charlie_wallet.address,
-        amount=5.0, metadata={"fixture_tx": "tx2_pending"}
+        amount=5.0, metadata={"fixture_tx": "tx2_pending"}, asset_id="EMP_Test_TokenB"
     )
     tx2.sign(bob_wallet)
-    bc.add_transaction(tx2, bob_wallet.get_public_key_hex())
+    # bc.add_transaction(tx2, bob_wallet.get_public_key_hex()) # Original problematic line
+
+    # To ensure Alice and Bob have funds for their transactions to pass add_transaction pre-check:
+    # 1. Fund Alice and Bob from genesis validator in a preliminary block.
+    genesis_validator_addr = bc.chain[0].validator_address
+    genesis_validator_wallet = VALIDATOR_WALLETS[genesis_validator_addr]
+
+    fund_alice_tx = Transaction(genesis_validator_addr, alice_wallet.address, 100.0, asset_id=Blockchain.NATIVE_CURRENCY_SYMBOL)
+    fund_alice_tx.sign(genesis_validator_wallet)
+    assert bc.add_transaction(fund_alice_tx, USER_PUBLIC_KEYS[genesis_validator_addr]), "Failed to add funding tx for Alice"
+
+    fund_bob_tx = Transaction(genesis_validator_addr, bob_wallet.address, 100.0, asset_id=Blockchain.NATIVE_CURRENCY_SYMBOL)
+    fund_bob_tx.sign(genesis_validator_wallet)
+    assert bc.add_transaction(fund_bob_tx, USER_PUBLIC_KEYS[genesis_validator_addr]), "Failed to add funding tx for Bob"
+
+    # Mine this funding block
+    # The validator for this block is already registered in blockchain_with_one_validator fixture
+    funding_validator_obj = bc.validator_manager.get_validator(validator_wallet.address) # validator_wallet from outer scope
+    assert funding_validator_obj is not None
+    with patch.object(bc.validator_manager, 'select_next_validator', return_value=funding_validator_obj):
+        mined_funding_block = bc.mine_pending_transactions()
+    assert mined_funding_block is not None, "Funding block failed to mine"
+    assert len(bc.chain) == 2 # Genesis + funding block
+    assert bc.balances.get(alice_wallet.address) == 100.0
+    assert bc.balances.get(bob_wallet.address) == 100.0
+
+    # Now add the original transactions from Alice and Bob, they should pass balance checks
+    assert bc.add_transaction(tx1, alice_wallet.get_public_key_hex()), "Failed to add tx1 from Alice"
+    assert bc.add_transaction(tx2, bob_wallet.get_public_key_hex()), "Failed to add tx2 from Bob"
 
     return bc
 
