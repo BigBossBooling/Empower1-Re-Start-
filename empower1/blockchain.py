@@ -48,12 +48,14 @@ class Blockchain:
         """Returns the last block in the chain."""
         return self.chain[-1]
 
-    def add_transaction(self, transaction: Transaction, sender_public_key_hex: str) -> bool:
+    def add_transaction(self, transaction: Transaction, sender_public_key_hex: str, received_from_network: bool = False) -> bool:
         """
         Adds a new transaction to the list of pending transactions after verifying its signature.
         Args:
             transaction (Transaction): The transaction to add.
             sender_public_key_hex (str): The sender's public key hex for signature verification.
+            received_from_network (bool): Flag to indicate if this tx was received from another node.
+                                          If True, it won't be immediately re-broadcast by this function.
         Returns:
             bool: True if transaction is valid and added, False otherwise.
         """
@@ -75,9 +77,9 @@ class Blockchain:
         self.pending_transactions.append(transaction)
         # print(f"Transaction {transaction.transaction_id} added to pending pool by {self.network_interface.self_node.node_id if self.network_interface else 'local'}.")
 
-        # Broadcast new valid transaction if network interface is available
-        if self.network_interface:
-            # print(f"Blockchain instance about to call broadcast_transaction for {transaction.transaction_id}")
+        # Broadcast new valid transaction if network interface is available AND it wasn't received from network
+        if self.network_interface and not received_from_network:
+            # print(f"Blockchain instance about to call broadcast_transaction for {transaction.transaction_id} (origin local)")
             self.network_interface.broadcast_transaction(transaction)
 
         return True

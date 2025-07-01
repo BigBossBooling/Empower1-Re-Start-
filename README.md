@@ -83,11 +83,11 @@ The implications of EmPower1 Blockchain extend far beyond traditional finance an
 *   **Intelligent Redistribution Engine (IRE):** Placeholder modules for future AI/ML-driven economic balancing.
 *   **Smart Contract Placeholders:** Initial classes for conceptual smart contract functionality.
 *   **Basic Testing Framework:** `pytest` setup with unit tests covering core components and basic network interactions.
-*   **Networking Placeholders:**
-    *   Nodes can be started via `cmd/node/main.py`.
-    *   Basic peer discovery via seed nodes and peer exchange.
-    *   HTTP (Flask) server on each node for API endpoints like `/ping`, `/GET_PEERS`, `/NEW_PEER_ANNOUNCE`.
-    *   Placeholders for broadcasting and receiving transactions/blocks over the network.
+*   **Basic Networking:**
+    *   Nodes can be started via `cmd/node/main.py`, each running an HTTP (Flask) server.
+    *   Peer discovery via seed nodes and peer-to-peer exchange (`/GET_PEERS`, `/NEW_PEER_ANNOUNCE`).
+    *   Transaction and block propagation: Nodes broadcast new transactions and blocks to peers. Received items are validated and added to the local state.
+    *   Basic chain synchronization: New nodes (or nodes on shorter forks) can request the full chain from a peer and adopt the longest valid chain.
 
 ### 5.2. Getting Started with Development
 
@@ -154,7 +154,7 @@ The implications of EmPower1 Blockchain extend far beyond traditional finance an
 
 As **EmPower1 Blockchain** continues to develop, it stands to significantly disrupt traditional financial systems. It's a call to action for the embracement of this evolutionary technology – a blueprint for a humanitarian style of blockchain straight from a future where AI and ML guarantee humanity a longer and more fruitful existence.
 
-* **Next Steps:** Focus will be on maturing the network layer (transaction/block propagation, consensus integration), refining PoS, further developing the IRE and smart contract capabilities.
+* **Next Steps:** Focus will be on fully integrating network propagation with consensus logic, implementing robust state management (account balances), refining PoS, and further developing the IRE and smart contract execution.
 * **Promotion, Testing, and Community Empowerment:** We emphasize thorough testing and strategic community outreach, particularly within communities of poverty, to drive adoption and ensure the platform serves its intended purpose.
 * **Join the Revolution:** Embrace the possibility of a world where financial competition is inclusive, where transaction processing is democratized, and where poverty becomes a distant memory. Join us in pioneering a future where every contribution is a step toward universal economic empowerment.
 * **Learn More:** Explore the **EmPower1 Blockchain video** for a comprehensive overview of this transformative technology.

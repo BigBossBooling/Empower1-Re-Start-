@@ -150,16 +150,30 @@ The primary way to run an EmPower1 node is using the `main.py` script in the `cm
    - `tax_contract.py`: Placeholder for logic governing tax rule definition and application.
 
 ### 4.7. Network Communication (`empower1/network/`)
-   - `node.py`: Defines the `Node` class, representing a participant in the network with a network address.
-   - `messages.py`: Defines `MessageType` enums and helper functions for creating standardized JSON message payloads for P2P communication.
-   - `network.py`: Contains the `Network` class, which manages P2P connections, peer discovery (simplified), message broadcasting (transactions, blocks), and hosts an HTTP server (Flask) for incoming messages.
+   - `node.py`: Defines the `Node` class, representing a participant in the network with a network address (host, port).
+   - `messages.py`: Defines `MessageType` enums for different network P2P messages.
+   - `network.py`: Contains the `Network` class, which manages:
+        - P2P connections and peer list (`peers`, `seed_nodes`, `connect_to_peer`, `request_peers_from`).
+        - An HTTP server (Flask) with endpoints for `/ping`, `/GET_PEERS`, `/NEW_PEER_ANNOUNCE`, `/GET_CHAIN`, `/NEW_TRANSACTION`, `/NEW_BLOCK`.
+        - Broadcasting of new transactions and blocks to known peers (`broadcast_transaction`, `broadcast_block`).
+        - Handling of received transactions and blocks (`handle_received_transaction`, `handle_received_block`), including validation and addition to the local blockchain.
+        - Basic chain synchronization: new nodes request the chain from peers, and a simple "longest valid chain wins" approach is used for updates (`request_chain_from_peer`, `handle_chain_response`).
+
+### 4.8. Command-Line Interface (`cmd/node/main.py`)
+   - A script to run an EmPower1 node. It initializes the Wallet, Blockchain, and Network components.
+   - Provides CLI commands for interacting with the node (e.g., creating transactions, mining, viewing chain/peers, staking).
+   - Connects to seed nodes on startup and participates in the P2P network.
 
 ## 5. Future Development & Contributions
 
-*   **Robust Network Layer**: Enhance peer discovery (e.g., DHT, gossip), implement more resilient message handling, and ensure reliable block/transaction propagation with fork resolution logic.
+*   **Robust Network Layer**:
+    *   Enhance peer discovery (e.g., DHT, gossip).
+    *   Implement more resilient message handling (e.g., retries, error propagation).
+    *   Improve block/transaction propagation efficiency (e.g., inventory messages before full data transfer).
+    *   Develop more sophisticated fork resolution logic beyond simple longest chain.
 *   **Mature Proof-of-Stake**: Develop the PoS mechanism further, including detailed validator rewards, slashing conditions, and dynamic validator set management.
-*   **State Management**: Implement robust state management for account balances and smart contract state.
-*   Full cryptographic implementation for wallets, signatures, and hashing.
+*   **State Management**: Implement robust state management for account balances and smart contract state, including transaction execution logic that modifies state.
+*   Full cryptographic implementation for wallets, signatures, and hashing. # (This is largely complete for core objects)
 *   Mature Proof-of-Stake implementation.
 *   Development of the AI/ML models for the IRE.
 *   Full smart contract execution environment.

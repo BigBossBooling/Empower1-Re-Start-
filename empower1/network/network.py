@@ -6,7 +6,7 @@ import time
 from flask import Flask, request, jsonify
 import requests # For making HTTP requests to other nodes
 
-from empower1.blockchain import Blockchain, USER_PUBLIC_KEYS # Assuming USER_PUBLIC_KEYS is a global or accessible dict
+from empower1.blockchain import Blockchain, USER_PUBLIC_KEYS, VALIDATOR_WALLETS # Assuming these globals are managed
 from empower1.transaction import Transaction
 from empower1.block import Block
 from empower1.network.node import Node
@@ -17,17 +17,20 @@ class Network:
     Manages network interactions for a blockchain node.
     """
     def __init__(self, blockchain: Blockchain, host: str, port: int, node_id: str = None, seed_nodes: set = None):
-        self.blockchain = blockchain # Blockchain instance is now passed here
-        # Link the blockchain back to this network interface if it needs to call broadcast methods
+        self.blockchain = blockchain
         if hasattr(self.blockchain, 'set_network_interface'):
             self.blockchain.set_network_interface(self)
-        elif hasattr(self.blockchain, 'network_interface'): # Or if it just has an attribute
+        elif hasattr(self.blockchain, 'network_interface'):
              self.blockchain.network_interface = self
 
         self.self_node = Node(host=host, port=port, node_id=node_id)
         print(f"Network interface initialized for Node: {self.self_node.node_id} at {self.self_node.address}")
 
         self.peers = set()
+        self.seen_tx_ids_broadcast = set()
+        self.seen_block_hashes_broadcast = set()
+        self.syncing_in_progress = False # Flag to prevent multiple syncs at once
+
 
         self.app = Flask(__name__)
         self._configure_routes()
@@ -44,9 +47,13 @@ class Network:
         @self.app.route(f"/{str(MessageType.GET_CHAIN)}", methods=['GET'])
         def get_chain_endpoint():
             try:
+                # Ensure blocks and transactions within blocks are serializable
                 chain_data_dicts = [block.to_dict() for block in self.blockchain.chain]
-            except AttributeError:
-                chain_data_dicts = [repr(block) for block in self.blockchain.chain]
+            except Exception as e:
+                print(f"Error serializing chain for GET_CHAIN: {e}")
+                # Fallback or error response
+                chain_data_dicts = [{"error": "Failed to serialize chain"}]
+                return jsonify({"error": "Failed to serialize chain data", "details": str(e)}), 500
             return jsonify({"chain": chain_data_dicts, "length": len(self.blockchain.chain)}), 200
 
         @self.app.route(f"/{str(MessageType.GET_PEERS)}", methods=['GET'])
@@ -56,6 +63,7 @@ class Network:
 
         @self.app.route(f"/{str(MessageType.NEW_PEER_ANNOUNCE)}", methods=['POST'])
         def new_peer_announce_api():
+            # ... (same as before)
             data = request.get_json()
             if not data or 'address' not in data:
                 return jsonify({"error": "Missing peer address"}), 400
@@ -69,12 +77,13 @@ class Network:
                 if self.add_peer(peer_node):
                     return jsonify({"message": "Peer added and their peers requested", "peer": peer_node.to_dict()}), 201
                 else:
-                    return jsonify({"message": "Peer already known"}), 200
+                    return jsonify({"message": "Peer already known or is self (not added)"}), 200
             except ValueError as e:
                 return jsonify({"error": f"Invalid peer address: {str(e)}"}), 400
             except Exception as e:
                 print(f"[{self.self_node.node_id}] Error processing NEW_PEER_ANNOUNCE from {peer_address}: {e}")
                 return jsonify({"error": "Failed to process peer announcement"}), 500
+
 
         @self.app.route(f"/{str(MessageType.NEW_TRANSACTION)}", methods=['POST'])
         def new_transaction_api():
@@ -82,10 +91,9 @@ class Network:
             if not tx_data:
                  return jsonify({"error": "No data provided for new transaction"}), 400
 
-            # print(f"[{self.self_node.node_id}] Received potential new transaction via API: {tx_data.get('transaction_id', 'N/A')}")
             success = self.handle_received_transaction(tx_data)
             if success:
-                return jsonify({"message": "Transaction processed successfully"}), 201
+                return jsonify({"message": "Transaction processed"}), 200
             else:
                 return jsonify({"message": "Failed to process transaction"}), 400
 
@@ -95,15 +103,13 @@ class Network:
             if not block_data:
                 return jsonify({"error": "No data provided for new block"}), 400
 
-            # print(f"[{self.self_node.node_id}] Received potential new block via API: {block_data.get('hash', 'N/A')}")
             success = self.handle_received_block(block_data)
             if success:
-                return jsonify({"message": "Block processed successfully"}), 201
+                return jsonify({"message": "Block processed"}), 200
             else:
                 return jsonify({"message": "Failed to process block"}), 400
 
     def start_server(self, threaded=True):
-        # ... (server start logic remains the same)
         if threaded:
             server_thread = threading.Thread(
                 target=lambda: self.app.run(host=self.self_node.host, port=self.self_node.port, debug=False, use_reloader=False)
@@ -115,9 +121,7 @@ class Network:
             print(f"[{self.self_node.node_id}] HTTP server starting on {self.self_node.address} (blocking).")
             self.app.run(host=self.self_node.host, port=self.self_node.port, debug=True)
 
-
-    def _send_http_request(self, method: str, peer_address: str, endpoint_path: str, json_data: dict = None, timeout=2) -> dict | None:
-        # ... (send http request logic remains the same)
+    def _send_http_request(self, method: str, peer_address: str, endpoint_path: str, json_data: dict = None, timeout=5) -> dict | None: # Increased timeout for chain sync
         try:
             url = f"{peer_address}{endpoint_path}"
             if method.upper() == 'GET':
@@ -125,218 +129,269 @@ class Network:
             elif method.upper() == 'POST':
                 response = requests.post(url, json=json_data, timeout=timeout)
             else:
-                print(f"[{self.self_node.node_id}] Unsupported HTTP method: {method}")
                 return None
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.HTTPError as http_err:
-            print(f"[{self.self_node.node_id}] HTTP error requesting {url}: {http_err} - Response: {http_err.response.text[:200] if http_err.response else 'No response text'}")
-        except requests.exceptions.ConnectionError as conn_err:
-            print(f"[{self.self_node.node_id}] Connection error requesting {url}: {conn_err}")
-        except requests.exceptions.Timeout as timeout_err:
-            print(f"[{self.self_node.node_id}] Timeout requesting {url}: {timeout_err}")
-        except requests.exceptions.RequestException as req_err:
-            print(f"[{self.self_node.node_id}] General error requesting {url}: {req_err}")
+        except requests.exceptions.HTTPError: pass
+        except requests.exceptions.ConnectionError: pass
+        except requests.exceptions.Timeout: pass
+        except requests.exceptions.RequestException: pass
         return None
 
     def connect_to_peer(self, peer_address: str) -> bool:
-        # ... (connect to peer logic remains the same)
         if peer_address == self.self_node.address: return False
         ping_response = self._send_http_request('GET', peer_address, '/ping')
         if ping_response and ping_response.get("address") == peer_address:
             try:
                 peer_node = Node.from_address_string(peer_address)
-                return self.add_peer(peer_node)
+                added = self.add_peer(peer_node)
+                # If successfully added a new peer, or if it was already known, attempt sync if needed
+                if added or peer_node in self.peers: # Check if peer_node is now in self.peers
+                    if len(self.blockchain.chain) == 1 and not self.syncing_in_progress: # Only genesis block
+                         print(f"[{self.self_node.node_id}] New node or short chain, attempting sync with {peer_node.address}")
+                         self.request_chain_from_peer(peer_node)
+                return added # Return true if it was newly added by add_peer
             except ValueError as e:
                 print(f"[{self.self_node.node_id}] Error parsing address string {peer_address} from ping response: {e}")
-                return False
         return False
 
     def connect_to_seed_nodes(self):
-        # ... (connect to seed nodes logic remains the same)
         print(f"[{self.self_node.node_id}] Connecting to seed nodes: {self.seed_nodes}")
         for seed_address in list(self.seed_nodes):
             self.connect_to_peer(seed_address)
 
     def add_peer(self, peer_node: Node) -> bool:
-        # ... (add peer logic remains the same)
         if peer_node.address == self.self_node.address: return False
         if peer_node in self.peers: return False
 
         self.peers.add(peer_node)
         print(f"[{self.self_node.node_id}] Added peer: {peer_node.address}. Total peers: {len(self.peers)}")
-        self.request_peers_from(peer_node)
+        self.request_peers_from(peer_node) # Discover more peers from this new peer
         return True
 
     def request_peers_from(self, peer_node: Node):
-        # ... (request peers from logic remains the same)
         response_data = self._send_http_request('GET', peer_node.address, f"/{str(MessageType.GET_PEERS)}")
         if response_data and 'peers' in response_data:
             newly_discovered_peer_addresses = response_data['peers']
             for new_peer_addr_str in newly_discovered_peer_addresses:
-                if new_peer_addr_str != self.self_node.address and new_peer_addr_str not in [p.address for p in self.peers]:
+                # Check if not self and not already a known peer by address string
+                if new_peer_addr_str != self.self_node.address and \
+                   not any(p.address == new_peer_addr_str for p in self.peers):
                     self.connect_to_peer(new_peer_addr_str)
 
     def get_known_peers_addresses(self) -> list[str]:
-        # ... (get known peers addresses logic remains the same)
         return [peer.address for peer in list(self.peers)]
 
     def broadcast_transaction(self, transaction: Transaction):
-        # ... (broadcast transaction logic remains the same)
+        if transaction.transaction_id in self.seen_tx_ids_broadcast: return
         tx_data = transaction.to_dict()
-        print(f"[{self.self_node.node_id}] Broadcasting transaction {transaction.transaction_id} to {len(self.peers)} peers.")
+        self.seen_tx_ids_broadcast.add(transaction.transaction_id)
+        # print(f"[{self.self_node.node_id}] Broadcasting tx {transaction.transaction_id} to {len(self.peers)} peers.")
         for peer_node in list(self.peers):
             self._send_http_request('POST', peer_node.address, f"/{str(MessageType.NEW_TRANSACTION)}", json_data=tx_data)
 
     def broadcast_block(self, block: Block):
-        # ... (broadcast block logic remains the same)
+        if block.hash in self.seen_block_hashes_broadcast: return
         try:
             block_data = block.to_dict()
         except AttributeError:
             block_data = {"block_repr": repr(block), "hash": block.hash, "index": block.index}
 
-        print(f"[{self.self_node.node_id}] Broadcasting block {block.hash} (Index: {block.index}) to {len(self.peers)} peers.")
+        # print(f"[{self.self_node.node_id}] Broadcasting block {block.hash} (Idx: {block.index}) to {len(self.peers)} peers.")
+        self.seen_block_hashes_broadcast.add(block.hash)
         for peer_node in list(self.peers):
             self._send_http_request('POST', peer_node.address, f"/{str(MessageType.NEW_BLOCK)}", json_data=block_data)
 
     def handle_received_transaction(self, tx_data: dict) -> bool:
-        print(f"[{self.self_node.node_id}] Processing received transaction: {tx_data.get('transaction_id', 'UnknownID')}")
+        # ... (implementation from previous step, ensure it's robust)
         try:
-            required_fields = ['sender_address', 'receiver_address', 'amount', 'signature_hex'] # Add 'asset_id', 'timestamp', 'fee', 'metadata' if strictly needed by from_dict for basic function
-            if not all(field in tx_data for field in required_fields): # Check essential fields for from_dict
-                print(f"[{self.self_node.node_id}] Received tx_data missing required fields for deserialization: {tx_data}")
+            required_fields = ['sender_address', 'receiver_address', 'amount', 'signature_hex', 'transaction_id']
+            if not all(field in tx_data for field in required_fields):
+                # print(f"[{self.self_node.node_id}] Received tx_data missing required fields: {tx_data}")
                 return False
-
+            transaction_id = tx_data['transaction_id']
+            if any(tx.transaction_id == transaction_id for tx in self.blockchain.pending_transactions) or \
+               any(any(tx.transaction_id == transaction_id for tx in b.transactions) for b in self.blockchain.chain):
+                return True
             transaction = Transaction.from_dict(tx_data)
+            if transaction.transaction_id != transaction_id: return False
+            sender_public_key_hex = USER_PUBLIC_KEYS.get(transaction.sender_address)
+            if not sender_public_key_hex: return False
 
-            # Check if transaction already processed or in chain (simple check by ID)
-            if any(tx.transaction_id == transaction.transaction_id for tx in self.blockchain.pending_transactions) or \
-               any(any(tx.transaction_id == transaction.transaction_id for tx in b.transactions) for b in self.blockchain.chain):
-                # print(f"[{self.self_node.node_id}] Transaction {transaction.transaction_id} already known. Skipping.")
-                return True # Acknowledge as processed, but not "newly added"
-
-            # Sender's public key must be in tx_data or globally available.
-            # The plan was for Blockchain.add_transaction to take sender_public_key_hex.
-            # If tx_data contains 'sender_public_key_hex', use it. Otherwise, fallback to USER_PUBLIC_KEYS.
-            sender_public_key_hex = tx_data.get('sender_public_key_hex')
-            if not sender_public_key_hex:
-                 sender_public_key_hex = USER_PUBLIC_KEYS.get(transaction.sender_address)
-
-            if not sender_public_key_hex:
-                print(f"[{self.self_node.node_id}] Public key for sender {transaction.sender_address} not found. Cannot verify tx {transaction.transaction_id}.")
-                return False
-
-            # The blockchain's add_transaction method now handles signature verification and then broadcasting.
-            # We pass False for its internal broadcast flag to prevent immediate re-broadcast from there if called from network handler.
-            # This node will decide to re-broadcast based on its own logic (e.g. if it was new to this node).
-            # For now, let's assume blockchain.add_transaction is modified to accept a 'broadcast_internally=True' param
-            # or we rely on its current behavior. The current blockchain.add_transaction *will* broadcast.
-            # This could lead to broadcast storms if not handled carefully (e.g. with a set of seen tx_ids for broadcast).
-            # For this step, let's assume add_transaction handles it or we accept potential extra broadcasts.
-
-            # Store original network interface to temporarily disable broadcast from add_transaction
             original_bc_net_interface = self.blockchain.network_interface
-            self.blockchain.network_interface = None # Temporarily disable broadcast from blockchain.add_transaction
-
-            success = self.blockchain.add_transaction(transaction, sender_public_key_hex)
-
-            self.blockchain.network_interface = original_bc_net_interface # Restore it
+            self.blockchain.network_interface = None
+            success = self.blockchain.add_transaction(transaction, sender_public_key_hex, received_from_network=True)
+            self.blockchain.network_interface = original_bc_net_interface
 
             if success:
-                print(f"[{self.self_node.node_id}] Successfully processed and added transaction {transaction.transaction_id} from network.")
-                # Decide if this node should re-broadcast (e.g., if it's the first time seeing this tx)
-                # For simplicity, we can re-broadcast. More advanced: use a set of tx_ids already broadcasted by this node.
-                self.broadcast_transaction(transaction)
+                # print(f"[{self.self_node.node_id}] Added transaction {transaction.transaction_id} from network to pending pool.")
+                if transaction.transaction_id not in self.seen_tx_ids_broadcast:
+                     self.broadcast_transaction(transaction)
                 return True
-            else:
-                print(f"[{self.self_node.node_id}] Failed to add transaction {transaction.transaction_id} from network to blockchain.")
-                return False
-        except Exception as e:
-            print(f"[{self.self_node.node_id}] Error processing received transaction: {e}")
             return False
+        except Exception: return False
+
 
     def handle_received_block(self, block_data: dict) -> bool:
-        print(f"[{self.self_node.node_id}] Processing received block: {block_data.get('hash', 'UnknownHash')}")
+        # ... (implementation from previous step, ensure it's robust for basic extension)
         try:
             received_block = Block.from_dict(block_data)
+            if any(b.hash == received_block.hash for b in self.blockchain.chain): return True
 
-            if any(b.hash == received_block.hash for b in self.blockchain.chain):
-                # print(f"[{self.self_node.node_id}] Block {received_block.hash} already exists. Skipping.")
-                return True # Acknowledge as processed.
+            current_chain_length = len(self.blockchain.chain)
+            last_block_hash = self.blockchain.last_block.hash if self.blockchain.last_block else "0" # Should always have genesis
 
-            # Basic validation (more advanced fork resolution would go here)
-            if received_block.index == len(self.blockchain.chain) and \
-               received_block.previous_hash == self.blockchain.last_block.hash:
-
-                # Full validation of the block itself (hash, signatures)
+            # Basic case: direct extension of current chain
+            if received_block.index == current_chain_length and received_block.previous_hash == last_block_hash:
+                # Full validation (similar to blockchain.is_chain_valid for a single block and its contents)
                 validator_pub_key = USER_PUBLIC_KEYS.get(received_block.validator_address)
-                if not validator_pub_key:
-                    print(f"[{self.self_node.node_id}] Validator public key for {received_block.validator_address} not found.")
-                    return False
-
+                if not validator_pub_key: return False
                 if received_block.hash != received_block._calculate_block_hash() or \
                    not received_block.verify_block_signature(validator_pub_key):
-                    print(f"[{self.self_node.node_id}] Invalid block signature or hash for block {received_block.hash}.")
                     return False
-
                 for tx in received_block.transactions:
                     tx_sender_pub_key = USER_PUBLIC_KEYS.get(tx.sender_address)
-                    if not tx_sender_pub_key or not tx.verify_signature(tx_sender_pub_key):
-                        print(f"[{self.self_node.node_id}] Invalid transaction {tx.transaction_id} in block {received_block.hash}.")
-                        return False
+                    if not tx_sender_pub_key or not tx.verify_signature(tx_sender_pub_key): return False
 
-                # If all checks pass, add to chain
                 self.blockchain.chain.append(received_block)
-                # Remove transactions in this block from pending pool
-                mined_tx_ids = {tx.transaction_id for tx in received_block.transactions}
                 self.blockchain.pending_transactions = [
-                    p_tx for p_tx in self.blockchain.pending_transactions if p_tx.transaction_id not in mined_tx_ids
+                    p_tx for p_tx in self.blockchain.pending_transactions if p_tx.transaction_id not in {tx.transaction_id for tx in received_block.transactions}
                 ]
-                print(f"[{self.self_node.node_id}] Added block {received_block.hash} from network.")
-                # Re-broadcast valid new block
-                self.broadcast_block(received_block)
+                print(f"[{self.self_node.node_id}] Added block {received_block.hash} (Index: {received_block.index}) from network.")
+                if received_block.hash not in self.seen_block_hashes_broadcast:
+                    self.broadcast_block(received_block)
                 return True
-            else:
-                print(f"[{self.self_node.node_id}] Received block {received_block.hash} does not extend current chain or prev_hash mismatch.")
-                # TODO: Handle forks / request missing blocks
+            # Potential fork or this node is behind
+            elif received_block.index >= current_chain_length and not self.syncing_in_progress :
+                print(f"[{self.self_node.node_id}] Received block {received_block.hash} (Idx: {received_block.index}) indicates possible fork or being behind. Requesting chain from sender.")
+                # Sender info isn't directly available here. Need to get it from request context or message.
+                # For now, just pick a peer to sync from if list is not empty
+                if self.peers:
+                    self.request_chain_from_peer(list(self.peers)[0]) # Simplistic: sync from first peer
+                return False # Not added yet, sync will handle
+            else: # Block is older or irrelevant for now
+                # print(f"[{self.self_node.node_id}] Received block {received_block.hash} (Idx: {received_block.index}) is not a direct extension or is older. Ignoring for now.")
                 return False
         except Exception as e:
             print(f"[{self.self_node.node_id}] Error processing received block: {e}")
-            return False
+        return False
+
+    def request_chain_from_peer(self, peer_node: Node):
+        if self.syncing_in_progress:
+            # print(f"[{self.self_node.node_id}] Sync already in progress. Skipping request to {peer_node.address}.")
+            return
+
+        self.syncing_in_progress = True
+        print(f"[{self.self_node.node_id}] Requesting full chain from peer {peer_node.address}...")
+        response_data = self._send_http_request('GET', peer_node.address, f"/{str(MessageType.GET_CHAIN)}")
+
+        if response_data and 'chain' in response_data and 'length' in response_data:
+            print(f"[{self.self_node.node_id}] Received chain of length {response_data['length']} from {peer_node.address}.")
+            self.handle_chain_response(response_data['chain'], peer_node)
+        else:
+            print(f"[{self.self_node.node_id}] Failed to get chain from {peer_node.address} or invalid response.")
+        self.syncing_in_progress = False
+
+    def handle_chain_response(self, received_chain_dicts: list[dict], from_peer_node: Node):
+        print(f"[{self.self_node.node_id}] Processing chain response from {from_peer_node.address} with {len(received_chain_dicts)} blocks.")
+        if not received_chain_dicts:
+            print(f"[{self.self_node.node_id}] Received empty chain from {from_peer_node.address}. No action taken.")
+            return
+
+        # Basic check: if received chain is shorter or same length as current, ignore (simplistic)
+        if len(received_chain_dicts) <= len(self.blockchain.chain):
+            print(f"[{self.self_node.node_id}] Received chain (len {len(received_chain_dicts)}) not longer than current (len {len(self.blockchain.chain)}). Ignoring.")
+            return
+
+        # Attempt to build and validate the received chain
+        prospective_chain = []
+        try:
+            for block_data in received_chain_dicts:
+                prospective_chain.append(Block.from_dict(block_data))
+        except Exception as e:
+            print(f"[{self.self_node.node_id}] Error deserializing received chain from {from_peer_node.address}: {e}")
+            return
+
+        # Full validation of the prospective_chain (from its genesis)
+        # This requires a temporary Blockchain instance or a static validation method
+        # For simplicity, let's adapt parts of Blockchain.is_chain_valid() here.
+
+        is_valid_prospective_chain = True
+        if not prospective_chain: # Should not happen if checked above
+            is_valid_prospective_chain = False
+
+        # Check genesis block of prospective chain (must match our known genesis if we have one)
+        # This basic sync assumes chains must share the same genesis. More complex sync handles divergent histories.
+        if self.blockchain.chain and prospective_chain and prospective_chain[0].hash != self.blockchain.chain[0].hash:
+            print(f"[{self.self_node.node_id}] Received chain from {from_peer_node.address} has different genesis block. Sync failed.")
+            is_valid_prospective_chain = False
+
+        if is_valid_prospective_chain:
+            for i in range(len(prospective_chain)):
+                current_block = prospective_chain[i]
+                if current_block.hash != current_block._calculate_block_hash(): is_valid_prospective_chain = False; break
+                if i > 0: # Non-genesis blocks
+                    previous_block = prospective_chain[i-1]
+                    if current_block.previous_hash != previous_block.hash: is_valid_prospective_chain = False; break
+                    validator_pub_key = USER_PUBLIC_KEYS.get(current_block.validator_address)
+                    if not validator_pub_key or not current_block.verify_block_signature(validator_pub_key): is_valid_prospective_chain = False; break
+                elif current_block.signature_hex: # Genesis block signature check
+                    validator_pub_key = USER_PUBLIC_KEYS.get(current_block.validator_address)
+                    if not validator_pub_key or not current_block.verify_block_signature(validator_pub_key): is_valid_prospective_chain = False; break
+
+                for tx in current_block.transactions:
+                    tx_sender_pub_key = USER_PUBLIC_KEYS.get(tx.sender_address)
+                    if not tx_sender_pub_key or not tx.verify_signature(tx_sender_pub_key): is_valid_prospective_chain = False; break
+                if not is_valid_prospective_chain: break
+
+        if is_valid_prospective_chain:
+            print(f"[{self.self_node.node_id}] Received chain from {from_peer_node.address} is valid and longer. Updating local chain.")
+            self.blockchain.chain = prospective_chain
+            # Clear pending transactions as they might be outdated or included
+            self.blockchain.pending_transactions = []
+            # Clear broadcast history as we have a new chain state
+            self.seen_block_hashes_broadcast.clear()
+            self.seen_tx_ids_broadcast.clear()
+            # Add blocks from new chain to broadcast history to prevent immediate re-broadcast of old blocks
+            for block in self.blockchain.chain:
+                self.seen_block_hashes_broadcast.add(block.hash)
+                for tx in block.transactions:
+                    self.seen_tx_ids_broadcast.add(tx.transaction_id)
+
+            # Potentially announce our new chain head or re-evaluate connections
+        else:
+            print(f"[{self.self_node.node_id}] Received chain from {from_peer_node.address} is invalid or not longer. Local chain preserved.")
 
 
 if __name__ == '__main__':
-    # ... (__main__ remains largely the same, ensure DemoBlockchain's Block has to_dict or is minimal)
     class DemoBlockchain:
         def __init__(self):
             genesis_validator = Wallet()
-            # Ensure USER_PUBLIC_KEYS is populated for the genesis validator for block verification
             USER_PUBLIC_KEYS[genesis_validator.address] = genesis_validator.get_public_key_hex()
+            VALIDATOR_WALLETS[genesis_validator.address] = genesis_validator # Store wallet for genesis signing
 
-            # Create a minimal valid Block for to_dict()
-            # For Block.to_dict() to work, transactions need to_dict().
-            # If Block.to_dict() serializes transactions, they must be actual Transaction objects.
-            self.chain = [Block(0, [], time.time(), "0", genesis_validator.address)]
-            self.chain[0].sign_block(genesis_validator) # Sign it
+            self.chain = []
+            # Create actual genesis block for DemoBlockchain
+            genesis_block = Block(0, [], time.time(), "0", genesis_validator.address)
+            genesis_block.sign_block(genesis_validator)
+            self.chain.append(genesis_block)
 
-            self.pending_transactions = [] # Add for handle_received_transaction
-            self.network_interface = None # For add_transaction to not fail if it tries to broadcast
+            self.pending_transactions = []
+            self.network_interface = None
             print("DemoBlockchain initialized for Network demo.")
 
-        # Minimal add_transaction for demo handle_received_transaction
-        def add_transaction(self, transaction, sender_public_key_hex):
-            # Simulate basic validation and adding
+        def add_transaction(self, transaction, sender_public_key_hex, received_from_network=False):
             if transaction.verify_signature(sender_public_key_hex):
-                self.pending_transactions.append(transaction)
-                print(f"[DemoBC] Added pending tx: {transaction.transaction_id}")
+                if not any(tx.transaction_id == transaction.transaction_id for tx in self.pending_transactions):
+                    self.pending_transactions.append(transaction)
+                if self.network_interface and not received_from_network:
+                    self.network_interface.broadcast_transaction(transaction)
                 return True
-            print(f"[DemoBC] Failed to add tx: {transaction.transaction_id}")
             return False
 
-        @property # Add last_block for handle_received_block
+        @property
         def last_block(self):
             return self.chain[-1] if self.chain else None
-
 
     demo_bc = DemoBlockchain()
     import sys
@@ -365,18 +420,20 @@ if __name__ == '__main__':
             print(f"Warning: Invalid seed node format '{sn}'. Skipping.")
 
     network_manager = Network(blockchain=demo_bc, host=host, port=port, seed_nodes=valid_seeds)
-    # Link network_manager to demo_bc so its broadcast methods can be called by demo_bc if needed
-    demo_bc.network_interface = network_manager # For the broadcast in add_transaction/mine_block
+    demo_bc.network_interface = network_manager
 
     network_manager.start_server(threaded=True)
 
     time.sleep(0.5)
-    if valid_seeds:
+    if valid_seeds: # If seeds provided, new node will try to sync
         network_manager.connect_to_seed_nodes()
+    elif len(demo_bc.chain) <=1 and not valid_seeds: # If no seeds, and it's a new node
+        print(f"[{network_manager.self_node.node_id}] No seed nodes provided. Node started with its genesis block.")
+
 
     print(f"\nNode {network_manager.self_node.node_id} running. API at {network_manager.self_node.address}")
     print(f"Known peers: {network_manager.get_known_peers_addresses()}")
-    print(f"Endpoints: /ping, /{str(MessageType.GET_PEERS)}, /{str(MessageType.NEW_PEER_ANNOUNCE)} (POST with {{'address': 'http://otherhost:otherport'}})")
+    print(f"Endpoints: /ping, /{str(MessageType.GET_CHAIN)}, /{str(MessageType.GET_PEERS)}, /{str(MessageType.NEW_PEER_ANNOUNCE)}")
     print(f"  /{str(MessageType.NEW_TRANSACTION)} (POST), /{str(MessageType.NEW_BLOCK)} (POST)")
 
     try:
