@@ -13,10 +13,11 @@ class Blockchain:
     Manages the chain of blocks, transactions, and consensus.
     Integrates cryptographic signing and verification.
     """
-    def __init__(self):
+    def __init__(self, network_interface=None): # network_interface can be empower1.network.Network
         self.chain = []
         self.pending_transactions = []
         self.validators_stake = {} # {validator_wallet_address: stake_amount}
+        self.network_interface = network_interface # Store network interface
 
         # Create and sign the genesis block
         self._create_and_sign_genesis_block()
@@ -69,9 +70,16 @@ class Blockchain:
             return False
 
         # TODO: Add other validations (e.g., sufficient funds - requires state management)
+        # TODO: Check if transaction already exists in pending_transactions or chain
 
         self.pending_transactions.append(transaction)
-        # print(f"Transaction {transaction.transaction_id} added to pending pool.")
+        # print(f"Transaction {transaction.transaction_id} added to pending pool by {self.network_interface.self_node.node_id if self.network_interface else 'local'}.")
+
+        # Broadcast new valid transaction if network interface is available
+        if self.network_interface:
+            # print(f"Blockchain instance about to call broadcast_transaction for {transaction.transaction_id}")
+            self.network_interface.broadcast_transaction(transaction)
+
         return True
 
     def mine_pending_transactions(self, validator_wallet_address: str) -> Block | None:
@@ -113,6 +121,12 @@ class Blockchain:
         self.chain.append(new_block)
         print(f"Block #{new_block.index} mined by {validator_wallet_address} with {len(new_block.transactions)} txs.")
         self.pending_transactions = []
+
+        # Broadcast the newly mined block if network interface is available
+        if self.network_interface:
+            # print(f"Blockchain instance about to call broadcast_block for {new_block.hash}")
+            self.network_interface.broadcast_block(new_block)
+
         return new_block
 
     def is_chain_valid(self) -> bool:

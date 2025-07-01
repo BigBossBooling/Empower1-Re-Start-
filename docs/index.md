@@ -38,11 +38,17 @@ The project is organized into the following main directories:
     *   `__init__.py`: Makes `tests` a Python package.
     *   `conftest.py`: Shared pytest fixtures used across different test files.
     *   `test_*.py`: Individual test files for each module (e.g., `test_block.py`, `test_transaction.py`).
+    *   `network/`: Tests for the network module.
+        *   `test_node.py`: Tests for the `Node` class.
+        *   `test_network.py`: Tests for the `Network` class and basic P2P interactions.
 *   `docs/`: Contains project documentation files (like this one).
+*   `cmd/`: Command-line applications.
+    *   `node/`: Contains the main script for running a blockchain node.
+        *   `main.py`: Script to initialize and run a node.
 *   `.gitignore`: Specifies intentionally untracked files that Git should ignore.
 *   `LICENSE`: Contains the project's license information (GNU Affero General Public License v3).
 *   `README.md`: The main project README file with a high-level overview.
-*   `requirements.txt` (To be added): Will list project dependencies.
+*   `requirements.txt`: Lists project dependencies.
 
 ## 3. Getting Started
 
@@ -67,11 +73,11 @@ The project is organized into the following main directories:
     ```
 
 3.  **Install dependencies:**
-    Currently, the main external dependency for running tests is `pytest`.
+    Install required Python packages using `requirements.txt`:
     ```bash
-    pip install pytest
+    pip install -r requirements.txt
     ```
-    (A `requirements.txt` file will be added later to streamline this: `pip install -r requirements.txt`)
+    This will install `pytest` (for testing), `cryptography` (for cryptographic operations), `Flask` (for the P2P network server), and `requests` (for making P2P network requests).
 
 ### 3.3. Running Tests
 
@@ -90,22 +96,40 @@ The project uses `pytest` for testing. To run all tests:
 
     You should see output indicating the number of tests passed.
 
-### 3.4. Running the Blockchain (Basic Simulation)
+### 3.4. Running a Node
 
-Currently, the blockchain components can be run in a simulated way via their `if __name__ == '__main__':` blocks. For example, to run the `blockchain.py` demo:
+The primary way to run an EmPower1 node is using the `main.py` script in the `cmd/node/` directory.
 
-```bash
-python empower1/blockchain.py
-```
+1.  **Navigate to the project root directory.**
+2.  **Run the node script:**
+    ```bash
+    python cmd/node/main.py [host] [port] [seed_node_http_address...]
+    ```
+    *   `[host]` (optional): The host address for the node to listen on (default: `127.0.0.1`).
+    *   `[port]` (optional): The port for the node to listen on (default: `5000`).
+    *   `[seed_node_http_address...]` (optional): Full HTTP addresses of seed nodes to connect to on startup (e.g., `http://127.0.0.1:5001`).
 
-This will demonstrate basic blockchain operations like creating transactions, mining blocks, and validating the chain as per the example script in that file. Similar runnable examples exist in `block.py`, `transaction.py`, etc.
+    **Example (running a single node on default host/port):**
+    ```bash
+    python cmd/node/main.py
+    ```
 
-## 4. Core Components Deep Dive (Placeholders)
+    **Example (running a node on port 5001 and connecting to a seed node on port 5000):**
+    ```bash
+    python cmd/node/main.py 127.0.0.1 5001 http://127.0.0.1:5000
+    ```
+
+3.  Once running, the node provides a simple Command-Line Interface (CLI) for interactions. Type `help` in the node's CLI for available commands.
+
+    You can run multiple instances of `cmd/node/main.py` on different ports to simulate a network. Use the `addpeer` command or provide seed node addresses to make them aware of each other.
+
+## 4. Core Components Deep Dive
 
 *(This section will be expanded with more detailed explanations of each component's API, logic, and interaction as development progresses.)*
 
-### 4.1. `Block`
-   - Represents a block with an index, list of transactions, timestamp, previous hash, validator, and its own hash.
+### 4.1. Core Blockchain Logic (`empower1/`)
+#### 4.1.1. `Block`
+   - Represents a block with an index, list of transactions, timestamp, previous hash, validator address, its own hash, and a validator's signature.
 
 ### 4.2. `Transaction`
    - Represents a transaction with sender, receiver, amount, asset ID, fee, timestamp, and signature.
@@ -125,10 +149,17 @@ This will demonstrate basic blockchain operations like creating transactions, mi
    - `stimulus_contract.py`: Placeholder for logic governing stimulus fund management and distribution.
    - `tax_contract.py`: Placeholder for logic governing tax rule definition and application.
 
+### 4.7. Network Communication (`empower1/network/`)
+   - `node.py`: Defines the `Node` class, representing a participant in the network with a network address.
+   - `messages.py`: Defines `MessageType` enums and helper functions for creating standardized JSON message payloads for P2P communication.
+   - `network.py`: Contains the `Network` class, which manages P2P connections, peer discovery (simplified), message broadcasting (transactions, blocks), and hosts an HTTP server (Flask) for incoming messages.
+
 ## 5. Future Development & Contributions
 
+*   **Robust Network Layer**: Enhance peer discovery (e.g., DHT, gossip), implement more resilient message handling, and ensure reliable block/transaction propagation with fork resolution logic.
+*   **Mature Proof-of-Stake**: Develop the PoS mechanism further, including detailed validator rewards, slashing conditions, and dynamic validator set management.
+*   **State Management**: Implement robust state management for account balances and smart contract state.
 *   Full cryptographic implementation for wallets, signatures, and hashing.
-*   Robust network layer for P2P communication between nodes.
 *   Mature Proof-of-Stake implementation.
 *   Development of the AI/ML models for the IRE.
 *   Full smart contract execution environment.

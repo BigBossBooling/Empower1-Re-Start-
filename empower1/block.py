@@ -126,6 +126,48 @@ class Block:
                 f"Timestamp: {self.timestamp}, Hash: {self.hash[:10]}..., Prev_Hash: {self.previous_hash[:10] if self.previous_hash else 'None'}..., "
                 f"Validator: {self.validator_address}, Signed: {'Yes' if self.signature_hex else 'No'})")
 
+    def to_dict(self) -> dict:
+        """Returns a dictionary representation of the block."""
+        return {
+            "index": self.index,
+            "transactions": [tx.to_dict() for tx in self.transactions], # Convert transactions to dicts
+            "timestamp": self.timestamp,
+            "previous_hash": self.previous_hash,
+            "validator_address": self.validator_address,
+            "signature_hex": self.signature_hex,
+            "hash": self.hash
+        }
+
+    @classmethod
+    def from_dict(cls, block_data: dict):
+        """
+        Creates a Block instance from a dictionary.
+        Assumes transaction data within block_data['transactions'] are also dicts
+        that can be converted by Transaction.from_dict().
+        The block's hash will be recalculated based on its content.
+        """
+        # Deserialize transactions first
+        transactions_from_data = []
+        if 'transactions' in block_data and isinstance(block_data['transactions'], list):
+            for tx_data in block_data['transactions']:
+                try:
+                    transactions_from_data.append(Transaction.from_dict(tx_data))
+                except Exception as e:
+                    # Handle error in transaction deserialization, e.g., log or raise
+                    print(f"Error deserializing transaction in block: {e}, data: {tx_data}")
+                    # Decide if this is fatal for block creation or if block can be created with partial/no txs
+                    raise ValueError(f"Invalid transaction data in block: {e}") from e
+
+
+        return cls(
+            index=block_data['index'],
+            transactions=transactions_from_data,
+            timestamp=block_data['timestamp'],
+            previous_hash=block_data['previous_hash'],
+            validator_address=block_data['validator_address'],
+            signature_hex=block_data.get('signature_hex') # Signature can be None if block is not yet signed
+        )
+
 if __name__ == '__main__':
     # Create Wallets for Alice (user) and ValidatorX
     alice_wallet = Wallet()

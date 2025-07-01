@@ -147,6 +147,25 @@ class Transaction:
                 f"Amount: {self.amount} {self.asset_id}, Fee: {self.fee}, Timestamp: {self.timestamp}, "
                 f"Signed: {'Yes' if self.signature_hex else 'No'})")
 
+    @classmethod
+    def from_dict(cls, tx_data: dict):
+        """
+        Creates a Transaction instance from a dictionary.
+        Assumes the dictionary contains all necessary fields.
+        The transaction_id will be recalculated based on the fields.
+        """
+        # Ensure all required fields for __init__ are present, handle optionals
+        return cls(
+            sender_address=tx_data['sender_address'],
+            receiver_address=tx_data['receiver_address'],
+            amount=tx_data['amount'],
+            asset_id=tx_data.get('asset_id', "empower_coin"),
+            timestamp=tx_data.get('timestamp', time.time()), # Default if missing
+            fee=tx_data.get('fee', 0.0),
+            metadata=tx_data.get('metadata', {}),
+            signature_hex=tx_data.get('signature_hex') # Can be None
+        )
+
 
 if __name__ == '__main__':
     # Create wallets for Alice and Bob

@@ -78,11 +78,16 @@ The implications of EmPower1 Blockchain extend far beyond traditional finance an
 **Current Status:** This project is in its early stages of development. The codebase provides a foundational (non-production-ready) simulation of the EmPower1 Blockchain concepts. Key functionalities are placeholders and will be significantly enhanced.
 
 ### 5.1. What's Implemented (Simulated):
-*   **Core Blockchain Structure:** `Block`, `Transaction`, `Blockchain`, and `Wallet` classes provide a basic framework.
-*   **Basic Proof-of-Stake (PoS):** Simplified validator registration and selection mechanism.
-*   **Intelligent Redistribution Engine (IRE):** Placeholder `ai_model.py` and `redistribution.py` for conceptual tax/stimulus logic.
-*   **Smart Contract Placeholders:** Initial classes (`StimulusContract`, `TaxContract`) demonstrating potential contract structures.
-*   **Basic Testing Framework:** `pytest` setup with initial unit tests for core components.
+*   **Core Blockchain Structure:** `Block`, `Transaction`, `Blockchain`, and `Wallet` classes with ECDSA cryptographic signing and verification.
+*   **Basic Proof-of-Stake (PoS):** Simplified validator registration (with Wallets) and selection.
+*   **Intelligent Redistribution Engine (IRE):** Placeholder modules for future AI/ML-driven economic balancing.
+*   **Smart Contract Placeholders:** Initial classes for conceptual smart contract functionality.
+*   **Basic Testing Framework:** `pytest` setup with unit tests covering core components and basic network interactions.
+*   **Networking Placeholders:**
+    *   Nodes can be started via `cmd/node/main.py`.
+    *   Basic peer discovery via seed nodes and peer exchange.
+    *   HTTP (Flask) server on each node for API endpoints like `/ping`, `/GET_PEERS`, `/NEW_PEER_ANNOUNCE`.
+    *   Placeholders for broadcasting and receiving transactions/blocks over the network.
 
 ### 5.2. Getting Started with Development
 
@@ -103,11 +108,11 @@ The implications of EmPower1 Blockchain extend far beyond traditional finance an
     ```
 
 4.  **Install Dependencies:**
-    The primary dependency for testing is `pytest`.
+    Install all required packages using the `requirements.txt` file:
     ```bash
-    pip install pytest
+    pip install -r requirements.txt
     ```
-    (A `requirements.txt` will be added as the project evolves.)
+    This includes `pytest`, `cryptography`, `Flask`, and `requests`.
 
 5.  **Run Tests:**
     To ensure the basic components are functioning as expected:
@@ -116,10 +121,31 @@ The implications of EmPower1 Blockchain extend far beyond traditional finance an
     ```
 
 6.  **Explore the Code:**
-    *   Start with `empower1/blockchain.py` to see a simulation of block creation and transaction handling. You can run it directly: `python empower1/blockchain.py`.
-    *   Examine other files in the `empower1/` directory and their corresponding tests in `tests/`.
+    *   Core blockchain logic: `empower1/` (start with `blockchain.py`, `wallet.py`, `transaction.py`, `block.py`).
+    *   Networking logic: `empower1/network/` (start with `network.py`, `node.py`).
+    *   Command-line node application: `cmd/node/main.py`.
+    *   Tests: `tests/` directory.
 
-7.  **Detailed Documentation:**
+7.  **Running a Node:**
+    You can start an EmPower1 node using the command-line application:
+    ```bash
+    python cmd/node/main.py [host] [port] [seed_node_http_address...]
+    ```
+    *   `[host]` (optional): Defaults to `127.0.0.1`.
+    *   `[port]` (optional): Defaults to `5000`.
+    *   `[seed_node_http_address...]` (optional): Other running nodes to connect to (e.g., `http://127.0.0.1:5001`).
+
+    **Example - Node 1 (on default port 5000):**
+    ```bash
+    python cmd/node/main.py
+    ```
+    **Example - Node 2 (on port 5001, seeding from Node 1):**
+    ```bash
+    python cmd/node/main.py 127.0.0.1 5001 http://127.0.0.1:5000
+    ```
+    Once a node is running, it provides a simple CLI. Type `help` for available commands.
+
+8.  **Detailed Documentation:**
     For more detailed information on project structure, components, and setup, please see the [Project Documentation](./docs/index.md).
 
 ---
@@ -128,7 +154,7 @@ The implications of EmPower1 Blockchain extend far beyond traditional finance an
 
 As **EmPower1 Blockchain** continues to develop, it stands to significantly disrupt traditional financial systems. It's a call to action for the embracement of this evolutionary technology – a blueprint for a humanitarian style of blockchain straight from a future where AI and ML guarantee humanity a longer and more fruitful existence.
 
-* **Next Steps:** Focus will be on robust cryptographic implementations, developing the network layer, maturing the PoS consensus, building out the AI/ML models for IRE, and creating a functional smart contract execution environment.
+* **Next Steps:** Focus will be on maturing the network layer (transaction/block propagation, consensus integration), refining PoS, further developing the IRE and smart contract capabilities.
 * **Promotion, Testing, and Community Empowerment:** We emphasize thorough testing and strategic community outreach, particularly within communities of poverty, to drive adoption and ensure the platform serves its intended purpose.
 * **Join the Revolution:** Embrace the possibility of a world where financial competition is inclusive, where transaction processing is democratized, and where poverty becomes a distant memory. Join us in pioneering a future where every contribution is a step toward universal economic empowerment.
 * **Learn More:** Explore the **EmPower1 Blockchain video** for a comprehensive overview of this transformative technology.
