@@ -73,17 +73,70 @@ The implications of EmPower1 Blockchain extend far beyond traditional finance an
 
 ---
 
-## V. Future Outlook & Engagement: Building a Brighter Future
+## V. Project Status & Getting Started (Developer Preview)
+
+**Current Status:** This project is in its early stages of development. The codebase provides a foundational (non-production-ready) simulation of the EmPower1 Blockchain concepts. Key functionalities are placeholders and will be significantly enhanced.
+
+### 5.1. What's Implemented (Simulated):
+*   **Core Blockchain Structure:** `Block`, `Transaction`, `Blockchain`, and `Wallet` classes provide a basic framework.
+*   **Basic Proof-of-Stake (PoS):** Simplified validator registration and selection mechanism.
+*   **Intelligent Redistribution Engine (IRE):** Placeholder `ai_model.py` and `redistribution.py` for conceptual tax/stimulus logic.
+*   **Smart Contract Placeholders:** Initial classes (`StimulusContract`, `TaxContract`) demonstrating potential contract structures.
+*   **Basic Testing Framework:** `pytest` setup with initial unit tests for core components.
+
+### 5.2. Getting Started with Development
+
+1.  **Prerequisites:**
+    *   Python 3.8+
+    *   Git
+
+2.  **Clone the Repository:**
+    ```bash
+    git clone <your_repository_url_here>
+    cd empower1-blockchain # Or your project directory name
+    ```
+
+3.  **Set up a Virtual Environment (Recommended):**
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ```
+
+4.  **Install Dependencies:**
+    The primary dependency for testing is `pytest`.
+    ```bash
+    pip install pytest
+    ```
+    (A `requirements.txt` will be added as the project evolves.)
+
+5.  **Run Tests:**
+    To ensure the basic components are functioning as expected:
+    ```bash
+    pytest
+    ```
+
+6.  **Explore the Code:**
+    *   Start with `empower1/blockchain.py` to see a simulation of block creation and transaction handling. You can run it directly: `python empower1/blockchain.py`.
+    *   Examine other files in the `empower1/` directory and their corresponding tests in `tests/`.
+
+7.  **Detailed Documentation:**
+    For more detailed information on project structure, components, and setup, please see the [Project Documentation](./docs/index.md).
+
+---
+
+## VI. Future Outlook & Engagement: Building a Brighter Future
 
 As **EmPower1 Blockchain** continues to develop, it stands to significantly disrupt traditional financial systems. It's a call to action for the embracement of this evolutionary technology – a blueprint for a humanitarian style of blockchain straight from a future where AI and ML guarantee humanity a longer and more fruitful existence.
 
+* **Next Steps:** Focus will be on robust cryptographic implementations, developing the network layer, maturing the PoS consensus, building out the AI/ML models for IRE, and creating a functional smart contract execution environment.
 * **Promotion, Testing, and Community Empowerment:** We emphasize thorough testing and strategic community outreach, particularly within communities of poverty, to drive adoption and ensure the platform serves its intended purpose.
 * **Join the Revolution:** Embrace the possibility of a world where financial competition is inclusive, where transaction processing is democratized, and where poverty becomes a distant memory. Join us in pioneering a future where every contribution is a step toward universal economic empowerment.
 * **Learn More:** Explore the **EmPower1 Blockchain video** for a comprehensive overview of this transformative technology.
 * **Invest & Connect:** Visit our official channels and join the movement at [Linktr.ee/EmPower1Blockchain](https://linktr.ee/EmPower1Blockchain) for insights and opportunities.
 
+
 ---
 
-## VI. About The Architect
+## VII. About The Architect
 
 **Josephis K. Wade**, also known as **The Architect** and **The Millennial Blogger**, is a transformative leader and creative innovator at the intersection of art and technology. As CEO of **InfiniTec LLC** and founder of **Kratos Elementa**, he leverages an extensive academic foundation in IT from **Purdue University Global** and the rigorous discipline of a **U.S. Army Veteran**. Known creatively as **DopeAMean** (a lyrical artist who crafted profound narratives like "One Hundred Years Of Pain") and **BigBossBooling** (the entrepreneurial musician and producer), Josephis's journey from **Columbus, Georgia**, through **Auburn, Alabama, Atlanta, and Denver, Colorado**, now finds new purpose in **Rapid City, South Dakota**. He champions authentic creation, strategic thinking, and the seamless blend of logic and artistry. Through **EmPower1 Blockchain**, he is actively engineering a future where strategic artistry leads to unprecedented success and true economic equity.
