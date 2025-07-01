@@ -138,18 +138,29 @@ The primary way to run an EmPower1 node is using the `main.py` script in the `cm
    - Manages cryptographic key pairs (simplified) and can sign data.
 
 ### 4.4. `Blockchain`
-   - Manages the chain of blocks, pending transactions, and includes basic Proof-of-Stake (PoS) logic for validator registration and selection.
+   - Manages the chain of blocks, pending transactions.
+   - Integrates with `ValidatorManager` for Proof-of-Stake (PoS) operations:
+     - `register_validator_wallet()`: Registers a node's wallet as a validator, passing staking information to the `ValidatorManager`.
+     - `mine_pending_transactions()`: Calls the `ValidatorManager` to select the next block producer. If the current node is selected, it mines a new block and signs it with its validator wallet.
+   - Validates incoming blocks and transactions, including cryptographic signatures and PoS rules (e.g., block signed by a known, active validator).
 
-### 4.5. Intelligent Redistribution Engine (`ire`)
+### 4.5. Consensus (`empower1/consensus/`)
+   - `validator.py`: Defines the `Validator` class, storing information like wallet address, public key, stake amount, active status, and last block production timestamp.
+   - `manager.py`: Contains the `ValidatorManager` class, responsible for:
+     - Managing the set of registered validators and their stakes.
+     - Determining if a validator is active based on minimum stake requirements.
+     - Selecting the next validator to produce a block (currently uses a round-robin strategy among active validators).
+
+### 4.6. Intelligent Redistribution Engine (`ire`) (`empower1/ire/`)
    - `ai_model.py`: Simulates decision-making for wealth categorization, stimulus eligibility, and tax calculation.
    - `redistribution.py`: Orchestrates the tax and stimulus processes using the AI model.
 
-### 4.6. Smart Contracts (`smart_contracts`)
+### 4.7. Smart Contracts (`smart_contracts`) (`empower1/smart_contracts/`)
    - `base_contract.py`: Provides shared functionality for contracts.
    - `stimulus_contract.py`: Placeholder for logic governing stimulus fund management and distribution.
    - `tax_contract.py`: Placeholder for logic governing tax rule definition and application.
 
-### 4.7. Network Communication (`empower1/network/`)
+### 4.8. Network Communication (`empower1/network/`)
    - `node.py`: Defines the `Node` class, representing a participant in the network with a network address (host, port).
    - `messages.py`: Defines `MessageType` enums for different network P2P messages.
    - `network.py`: Contains the `Network` class, which manages:
@@ -159,7 +170,7 @@ The primary way to run an EmPower1 node is using the `main.py` script in the `cm
         - Handling of received transactions and blocks (`handle_received_transaction`, `handle_received_block`), including validation and addition to the local blockchain.
         - Basic chain synchronization: new nodes request the chain from peers, and a simple "longest valid chain wins" approach is used for updates (`request_chain_from_peer`, `handle_chain_response`).
 
-### 4.8. Command-Line Interface (`cmd/node/main.py`)
+### 4.9. Command-Line Interface (`cmd/node/main.py`)
    - A script to run an EmPower1 node. It initializes the Wallet, Blockchain, and Network components.
    - Provides CLI commands for interacting with the node (e.g., creating transactions, mining, viewing chain/peers, staking).
    - Connects to seed nodes on startup and participates in the P2P network.
@@ -171,10 +182,12 @@ The primary way to run an EmPower1 node is using the `main.py` script in the `cm
     *   Implement more resilient message handling (e.g., retries, error propagation).
     *   Improve block/transaction propagation efficiency (e.g., inventory messages before full data transfer).
     *   Develop more sophisticated fork resolution logic beyond simple longest chain.
-*   **Mature Proof-of-Stake**: Develop the PoS mechanism further, including detailed validator rewards, slashing conditions, and dynamic validator set management.
+*   **Mature Proof-of-Stake**: Further develop the PoS mechanism:
+    *   Implement weighted random selection based on stake.
+    *   Define and implement validator rewards and penalties (slashing).
+    *   Manage dynamic changes in the active validator set more robustly.
 *   **State Management**: Implement robust state management for account balances and smart contract state, including transaction execution logic that modifies state.
 *   Full cryptographic implementation for wallets, signatures, and hashing. # (This is largely complete for core objects)
-*   Mature Proof-of-Stake implementation.
 *   Development of the AI/ML models for the IRE.
 *   Full smart contract execution environment.
 *   Comprehensive API for interactions.

@@ -8,15 +8,19 @@ from empower1.wallet import Wallet # Now needed for actual signing
 USER_PUBLIC_KEYS = {} # {user_wallet_address: user_public_key_hex}
 VALIDATOR_WALLETS = {} # {validator_wallet_address: Wallet_object} for block signing
 
+from empower1.consensus.manager import ValidatorManager
+# from empower1.consensus.validator import Validator # Not directly instantiated here, but good for context
+
 class Blockchain:
     """
     Manages the chain of blocks, transactions, and consensus.
     Integrates cryptographic signing and verification.
+    Uses ValidatorManager for PoS logic.
     """
     def __init__(self, network_interface=None): # network_interface can be empower1.network.Network
         self.chain = []
         self.pending_transactions = []
-        self.validators_stake = {} # {validator_wallet_address: stake_amount}
+        self.validator_manager = ValidatorManager() # Instantiate ValidatorManager
         self.network_interface = network_interface # Store network interface
 
         # Create and sign the genesis block
@@ -84,44 +88,47 @@ class Blockchain:
 
         return True
 
-    def mine_pending_transactions(self, validator_wallet_address: str) -> Block | None:
+    def mine_pending_transactions(self) -> Block | None:
         """
-        Mines pending transactions into a new block. The block is signed by the validator.
-        Args:
-            validator_wallet_address (str): The wallet address of the validator creating this block.
-                                           The corresponding Wallet object must be in VALIDATOR_WALLETS.
+        Selects a validator using ValidatorManager, mines pending transactions into a new block,
+        and the selected validator signs the block.
         Returns:
-            Block: The newly created and added block, or None if no transactions or invalid validator.
+            Block: The newly created and added block, or None if no transactions, no active validator,
+                   or if the selected validator's wallet is not found for signing.
         """
-        if validator_wallet_address not in VALIDATOR_WALLETS:
-            print(f"Error: Validator wallet for address {validator_wallet_address} not found for signing.")
+        selected_validator_obj = self.validator_manager.select_next_validator()
+        if not selected_validator_obj:
+            print("Error: No active validator selected to mine the block.")
             return None
 
-        validator_wallet = VALIDATOR_WALLETS[validator_wallet_address]
+        selected_validator_address = selected_validator_obj.wallet_address
+        validator_wallet = VALIDATOR_WALLETS.get(selected_validator_address)
+
+        if not validator_wallet:
+            print(f"Error: Wallet for selected validator {selected_validator_address} not found in VALIDATOR_WALLETS. Cannot sign block.")
+            # This indicates an inconsistency if a validator is in ValidatorManager but not in VALIDATOR_WALLETS.
+            # register_validator_wallet should ensure they are added to both.
+            return None
 
         if not self.pending_transactions:
-            # Allow mining empty blocks if needed by consensus, but usually requires transactions.
-            # print("No pending transactions to mine. (Consider if empty blocks are allowed)")
-            # For now, let's require transactions to mine a block beyond genesis.
-            # If we want to allow empty blocks:
-            # pass
-            print("No pending transactions to mine.")
+            # print("No pending transactions to mine. Block creation skipped by {selected_validator_address}.")
+            # Depending on consensus rules, empty blocks might be allowed. For now, require transactions.
+            # To allow empty blocks, remove this check or handle it differently.
+            print(f"No pending transactions for validator {selected_validator_address} to mine.")
             return None
-
 
         new_block = Block(
             index=len(self.chain),
-            transactions=list(self.pending_transactions), # Copy
+            transactions=list(self.pending_transactions), # Take a copy
             timestamp=time.time(),
             previous_hash=self.last_block.hash,
-            validator_address=validator_wallet.address # Store validator's wallet address
+            validator_address=selected_validator_address # Store selected validator's wallet address
         )
 
-        # Validator signs the block
-        new_block.sign_block(validator_wallet)
+        new_block.sign_block(validator_wallet) # Selected validator signs the block
 
         self.chain.append(new_block)
-        print(f"Block #{new_block.index} mined by {validator_wallet_address} with {len(new_block.transactions)} txs.")
+        print(f"Block #{new_block.index} mined by {selected_validator_address} with {len(new_block.transactions)} txs.")
         self.pending_transactions = []
 
         # Broadcast the newly mined block if network interface is available
@@ -158,21 +165,39 @@ class Blockchain:
                 # Need the validator's public key. Assume validator_address in block can be mapped to it.
                 validator_public_key_hex = USER_PUBLIC_KEYS.get(current_block.validator_address)
                 if not validator_public_key_hex:
-                    print(f"Error: Public key for validator {current_block.validator_address} not found for block {current_block.index}.")
+                    print(f"Error: Public key for validator {current_block.validator_address} (Block {current_block.index}) not found in USER_PUBLIC_KEYS.")
                     return False
+
+                # Check if validator is known and active in ValidatorManager
+                validator_in_manager = self.validator_manager.get_validator(current_block.validator_address)
+                if not validator_in_manager:
+                    print(f"Error: Validator {current_block.validator_address} (Block {current_block.index}) not found in ValidatorManager.")
+                    return False
+                if not validator_in_manager.is_active:
+                    # This check is based on current 'is_active' status. For historical blocks,
+                    # this might need to check against historical validator sets or rules.
+                    # For now, we check current status as a simplification.
+                    print(f"Error: Validator {current_block.validator_address} (Block {current_block.index}) is not currently active.")
+                    # Consider if this should be a strict failure for older blocks if validator status changes.
+                    # For now, let's be strict: an inactive validator cannot have a valid recent block.
+                    # If block.timestamp is very old, this rule might be relaxed in a more complex system.
+                    # return False # Decided to keep this strict for now.
+
                 if not current_block.verify_block_signature(validator_public_key_hex):
                     print(f"Error: Block {current_block.index} has an invalid validator signature.")
                     return False
+
             # For Genesis block, signature check (if signed)
-            elif i == 0 and current_block.signature_hex: # If genesis block is signed
+            elif i == 0 and current_block.signature_hex:
+                # Genesis validator might not be in the regular ValidatorManager active set,
+                # but its pubkey should be in USER_PUBLIC_KEYS from _create_and_sign_genesis_block.
                 genesis_validator_public_key_hex = USER_PUBLIC_KEYS.get(current_block.validator_address)
                 if not genesis_validator_public_key_hex:
-                     print(f"Error: Public key for genesis validator {current_block.validator_address} not found.")
+                     print(f"Error: Public key for genesis validator {current_block.validator_address} not found in USER_PUBLIC_KEYS.")
                      return False
                 if not current_block.verify_block_signature(genesis_validator_public_key_hex):
                     print(f"Error: Genesis Block has an invalid validator signature.")
                     return False
-
 
             # 3. Verify all transactions within the block
             for tx in current_block.transactions:
@@ -196,44 +221,39 @@ class Blockchain:
         if not isinstance(validator_wallet, Wallet):
             print("Error: Invalid validator wallet object.")
             return
-        if stake_amount <= 0:
-            print("Stake amount must be positive.")
+        if stake_amount <= 0: # Initial stake amount must be positive for registration
+            print("Initial stake amount must be positive for validator registration.")
             return
 
         addr = validator_wallet.address
-        self.validators_stake[addr] = self.validators_stake.get(addr, 0) + stake_amount
-        VALIDATOR_WALLETS[addr] = validator_wallet # Store wallet for signing blocks
-        USER_PUBLIC_KEYS[addr] = validator_wallet.get_public_key_hex() # Store public key
-        print(f"Validator {addr} registered/updated stake to {self.validators_stake[addr]}. Wallet and PubKey stored.")
+        pub_key_hex = validator_wallet.get_public_key_hex()
 
-    def select_validator(self) -> str | None:
-        """
-        Selects a validator based on stake (simplified).
-        Returns the wallet address of the selected validator.
-        """
-        if not self.validators_stake:
-            print("No validators registered to select from.")
-            return None
-        import random
-        total_stake = sum(self.validators_stake.values())
-        if total_stake == 0:
-            return random.choice(list(self.validators_stake.keys()))
+        # Use ValidatorManager to handle stake and validator status
+        validator_obj = self.validator_manager.add_or_update_validator_stake(addr, pub_key_hex, stake_amount)
 
-        pick = random.uniform(0, total_stake)
-        current_stake_sum = 0
-        for addr, stake in self.validators_stake.items():
-            current_stake_sum += stake
-            if current_stake_sum >= pick:
-                return addr
-        return list(self.validators_stake.keys())[-1] # Fallback
+        if validator_obj:
+            # Still keep VALIDATOR_WALLETS and USER_PUBLIC_KEYS for direct access by Blockchain/Network
+            # for signing and verification lookups, as ValidatorManager might not store Wallet objects.
+            VALIDATOR_WALLETS[addr] = validator_wallet
+            USER_PUBLIC_KEYS[addr] = pub_key_hex
+            print(f"Validator {addr} wallet/pubkey stored/updated for blockchain operations. Stake: {validator_obj.stake}, Active: {validator_obj.is_active}")
+        else:
+            print(f"Failed to register or update validator {addr} in ValidatorManager.")
+
+    # select_validator() method is removed from Blockchain.
+    # Block mining will call self.validator_manager.select_next_validator() directly.
 
     def __repr__(self):
         chain_str = "Blockchain State:\n"
         chain_str += f"  Total Blocks: {len(self.chain)}\n"
         chain_str += f"  Pending Transactions: {len(self.pending_transactions)}\n"
-        chain_str += "  Registered Validators (Stake):\n"
-        for addr, stake in self.validators_stake.items():
-            chain_str += f"    - {addr}: {stake}\n"
+        # Get validator info from ValidatorManager
+        chain_str += "  Validators (from Manager):\n"
+        if self.validator_manager and self.validator_manager.validators:
+            for addr, val_obj in self.validator_manager.validators.items():
+                chain_str += f"    - {addr[:15]}... Stake: {val_obj.stake}, Active: {val_obj.is_active}\n"
+        else:
+            chain_str += "    No validators managed.\n"
         chain_str += "Chain:\n"
         for block in self.chain:
             chain_str += f"  ┗━ {block}\n"

@@ -147,18 +147,21 @@ def main():
                     print("Usage: tx <receiver_address> <amount> <asset_id> [metadata_json_string]")
 
             elif command == "mine":
-                if node_wallet.address in VALIDATOR_WALLETS: # Check if this node is a registered validator
-                    if blockchain.pending_transactions:
-                        print("Attempting to mine a new block...")
-                        mined_block = blockchain.mine_pending_transactions(node_wallet.address)
-                        if mined_block:
-                            print(f"Successfully mined Block #{mined_block.index} with hash {mined_block.hash[:10]}...")
-                        else:
-                            print("Mining failed (no pending tx or other issue).")
+                # Node attempts to mine. Blockchain logic will determine if this node's
+                # validator identity is selected by ValidatorManager.
+                if blockchain.pending_transactions:
+                    print("Attempting to mine a new block (if selected as validator)...")
+                    mined_block = blockchain.mine_pending_transactions() # No argument needed now
+                    if mined_block:
+                        # This means this node *was* selected and successfully mined.
+                        print(f"Successfully mined Block #{mined_block.index} with hash {mined_block.hash[:10]}... by {mined_block.validator_address}")
                     else:
-                        print("No pending transactions to mine.")
+                        # This could be due to no pending tx, no active validator selected,
+                        # or this node not being the selected one.
+                        # The mine_pending_transactions method prints more specific reasons.
+                        print("Mining process did not result in a new block by this node.")
                 else:
-                    print("This node is not registered as a validator. Use 'stake <amount>' to register.")
+                    print("No pending transactions to mine.")
 
             elif command == "chain":
                 print("\nCurrent Blockchain:")

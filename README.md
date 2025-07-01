@@ -79,7 +79,11 @@ The implications of EmPower1 Blockchain extend far beyond traditional finance an
 
 ### 5.1. What's Implemented (Simulated):
 *   **Core Blockchain Structure:** `Block`, `Transaction`, `Blockchain`, and `Wallet` classes with ECDSA cryptographic signing and verification.
-*   **Basic Proof-of-Stake (PoS):** Simplified validator registration (with Wallets) and selection.
+*   **Proof-of-Stake (PoS) Basics:**
+    *   `Validator` class to store validator data (pubkey, stake, active status).
+    *   `ValidatorManager` to manage the validator set, handle staking (conceptual, in-memory), and select block producers using a round-robin strategy among active validators.
+    *   Blockchain integrates with `ValidatorManager` for validator registration and block production.
+    *   Block validation includes checks for known, active validators.
 *   **Intelligent Redistribution Engine (IRE):** Placeholder modules for future AI/ML-driven economic balancing.
 *   **Smart Contract Placeholders:** Initial classes for conceptual smart contract functionality.
 *   **Basic Testing Framework:** `pytest` setup with unit tests covering core components and basic network interactions.
@@ -154,7 +158,7 @@ The implications of EmPower1 Blockchain extend far beyond traditional finance an
 
 As **EmPower1 Blockchain** continues to develop, it stands to significantly disrupt traditional financial systems. It's a call to action for the embracement of this evolutionary technology – a blueprint for a humanitarian style of blockchain straight from a future where AI and ML guarantee humanity a longer and more fruitful existence.
 
-* **Next Steps:** Focus will be on fully integrating network propagation with consensus logic, implementing robust state management (account balances), refining PoS, and further developing the IRE and smart contract execution.
+* **Next Steps:** Focus will be on fully integrating network propagation with the refined PoS consensus logic (e.g., ensuring only selected validators' blocks are accepted/propagated widely), implementing robust state management for account balances, and further developing the IRE and smart contract execution capabilities. Advanced PoS features like stake-weighted selection, rewards, and slashing are also future work.
 * **Promotion, Testing, and Community Empowerment:** We emphasize thorough testing and strategic community outreach, particularly within communities of poverty, to drive adoption and ensure the platform serves its intended purpose.
 * **Join the Revolution:** Embrace the possibility of a world where financial competition is inclusive, where transaction processing is democratized, and where poverty becomes a distant memory. Join us in pioneering a future where every contribution is a step toward universal economic empowerment.
 * **Learn More:** Explore the **EmPower1 Blockchain video** for a comprehensive overview of this transformative technology.
